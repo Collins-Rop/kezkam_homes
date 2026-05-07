@@ -1,0 +1,351 @@
+'use client';
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { Upload, X, Download, AlertCircle, CheckCircle2 } from 'lucide-react';
+
+interface ParsedRow {
+  full_name: string;
+  phone_number: string;
+  apartment_name: string;
+  move_in_date: string;
+  error?: string;
+}
+
+function parseCSV(text: string): ParsedRow[] {
+  const lines = text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  if (lines.length < 2) return [];
+
+  // Detect if first line is a header
+  const firstLower = lines[0].toLowerCase();
+  const hasHeader =
+    firstLower.includes('name') ||
+    firstLower.includes('phone') ||
+    firstLower.includes('apartment');
+  const dataLines = hasHeader ? lines.slice(1) : lines;
+
+  return dataLines.map((line) => {
+    // Handle quoted fields
+    const cols: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    for (const ch of line) {
+      if (ch === '"') { inQuotes = !inQuotes; continue; }
+      if (ch === ',' && !inQuotes) { cols.push(current.trim()); current = ''; continue; }
+      current += ch;
+    }
+    cols.push(current.trim());
+
+    const [full_name = '', phone_number = '', apartment_name = '', move_in_date = ''] = cols;
+
+    const errors: string[] = [];
+    if (!full_name) errors.push('missing name');
+    if (!phone_number) errors.push('missing phone');
+    if (!apartment_name) errors.push('missing apartment');
+
+    return {
+      full_name,
+      phone_number,
+      apartment_name,
+      move_in_date: move_in_date || new Date().toISOString().split('T')[0],
+      error: errors.length ? errors.join(', ') : undefined,
+    };
+  });
+}
+
+const TEMPLATE = `Full Name,Phone Number,Apartment Name,Move-in Date
+John Doe,0712345678,Apt A101,2024-01-01
+Jane Mwangi,0723456789,Apt B202,2024-03-15
+`;
+
+export default function ImportTenantsModal() {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [csvText, setCsvText] = useState('');
+  const [rows, setRows] = useState<ParsedRow[]>([]);
+  const [step, setStep] = useState<'paste' | 'preview' | 'done'>('paste');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<{ created: number; errors: string[] } | null>(null);
+
+  function handleParse() {
+    const parsed = parseCSV(csvText);
+    setRows(parsed);
+    setStep('preview');
+  }
+
+  function downloadTemplate() {
+    const blob = new Blob([TEMPLATE], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'tenants-template.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function handleImport() {
+    const validRows = rows.filter((r) => !r.error);
+    if (!validRows.length) return;
+
+    setLoading(true);
+    const res = await fetch('/api/tenants/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenants: validRows }),
+    });
+    const data = await res.json();
+    setResult({ created: data.created ?? 0, errors: data.errors ?? [] });
+    setLoading(false);
+    setStep('done');
+    router.refresh();
+  }
+
+  function closeModal() {
+    setOpen(false);
+    setCsvText('');
+    setRows([]);
+    setStep('paste');
+    setResult(null);
+  }
+
+  const validCount = rows.filter((r) => !r.error).length;
+  const invalidCount = rows.filter((r) => !!r.error).length;
+
+  return (
+    <>
+      <button onClick={() => setOpen(true)} className="btn-secondary">
+        <Upload size={15} /> Import from CSV
+      </button>
+
+      {open && (
+        <div
+          className="modal-overlay"
+          onClick={(e) => e.target === e.currentTarget && closeModal()}
+        >
+          <div
+            className="modal-box w-full"
+            style={{ maxWidth: '640px', maxHeight: '90vh', overflowY: 'auto' }}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-2">
+                <Upload size={18} style={{ color: 'var(--color-brand)' }} />
+                <h2
+                  className="font-semibold text-lg"
+                  style={{ fontFamily: 'var(--font-display)' }}
+                >
+                  Import Tenants from CSV
+                </h2>
+              </div>
+              <button onClick={closeModal} className="btn-secondary !p-1.5">
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* ── Step 1: Paste ───────────────────────────────────── */}
+            {step === 'paste' && (
+              <div className="space-y-4">
+                <div
+                  className="rounded-xl p-4 text-sm space-y-2"
+                  style={{
+                    background: 'rgba(212,133,26,0.06)',
+                    border: '1px solid rgba(212,133,26,0.18)',
+                  }}
+                >
+                  <p className="font-medium" style={{ color: 'var(--color-brand-light)' }}>
+                    How to import
+                  </p>
+                  <ol
+                    className="space-y-1 list-decimal list-inside"
+                    style={{ color: 'var(--color-text-muted)' }}
+                  >
+                    <li>Download the template below and open in Excel.</li>
+                    <li>Fill in your tenant data (one tenant per row).</li>
+                    <li>
+                      Save as CSV (File → Save As → CSV) then open it, select all (Ctrl+A),
+                      copy and paste below.
+                    </li>
+                    <li>
+                      The <strong>Apartment Name</strong> must exactly match an existing
+                      apartment in the system.
+                    </li>
+                  </ol>
+                </div>
+
+                <button onClick={downloadTemplate} className="btn-secondary w-full justify-center">
+                  <Download size={15} /> Download Template (Excel/CSV)
+                </button>
+
+                <div>
+                  <label className="label">Paste CSV data here</label>
+                  <textarea
+                    className="input resize-none font-mono text-xs"
+                    rows={10}
+                    placeholder={`Full Name,Phone Number,Apartment Name,Move-in Date\nJohn Doe,0712345678,Apt A101,2024-01-01\n…`}
+                    value={csvText}
+                    onChange={(e) => setCsvText(e.target.value)}
+                  />
+                </div>
+
+                <div className="flex gap-3">
+                  <button onClick={closeModal} className="btn-secondary flex-1 justify-center">
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleParse}
+                    className="btn-primary flex-1 justify-center"
+                    disabled={!csvText.trim()}
+                  >
+                    Preview Import
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ── Step 2: Preview ─────────────────────────────────── */}
+            {step === 'preview' && (
+              <div className="space-y-4">
+                <div className="flex flex-wrap gap-3">
+                  <span
+                    className="text-sm px-3 py-1.5 rounded-full font-medium"
+                    style={{
+                      background: 'rgba(22,163,74,0.1)',
+                      color: '#15803d',
+                      border: '1px solid rgba(22,163,74,0.2)',
+                    }}
+                  >
+                    ✓ {validCount} ready to import
+                  </span>
+                  {invalidCount > 0 && (
+                    <span
+                      className="text-sm px-3 py-1.5 rounded-full font-medium"
+                      style={{
+                        background: 'rgba(220,38,38,0.08)',
+                        color: '#b91c1c',
+                        border: '1px solid rgba(220,38,38,0.18)',
+                      }}
+                    >
+                      ✗ {invalidCount} with errors (will be skipped)
+                    </span>
+                  )}
+                </div>
+
+                {/* Preview table */}
+                <div
+                  className="overflow-auto rounded-xl"
+                  style={{
+                    border: '1px solid var(--color-border)',
+                    maxHeight: '320px',
+                  }}
+                >
+                  <table className="data-table text-xs">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Phone</th>
+                        <th>Apartment</th>
+                        <th>Move-in</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((r, i) => (
+                        <tr
+                          key={i}
+                          style={
+                            r.error
+                              ? { background: 'rgba(220,38,38,0.04)' }
+                              : { background: 'rgba(22,163,74,0.03)' }
+                          }
+                        >
+                          <td className="font-medium">{r.full_name || '—'}</td>
+                          <td style={{ color: 'var(--color-text-muted)' }}>{r.phone_number || '—'}</td>
+                          <td style={{ color: 'var(--color-text-muted)' }}>{r.apartment_name || '—'}</td>
+                          <td style={{ color: 'var(--color-text-muted)' }}>{r.move_in_date}</td>
+                          <td>
+                            {r.error ? (
+                              <span className="flex items-center gap-1 text-red-600">
+                                <AlertCircle size={11} /> {r.error}
+                              </span>
+                            ) : (
+                              <span className="flex items-center gap-1 text-green-600">
+                                <CheckCircle2 size={11} /> OK
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {validCount === 0 && (
+                  <p
+                    className="text-sm text-center py-3 rounded-lg"
+                    style={{
+                      background: 'rgba(220,38,38,0.06)',
+                      color: '#b91c1c',
+                      border: '1px solid rgba(220,38,38,0.15)',
+                    }}
+                  >
+                    No valid rows to import. Please fix the errors above.
+                  </p>
+                )}
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setStep('paste')}
+                    className="btn-secondary flex-1 justify-center"
+                  >
+                    Back
+                  </button>
+                  <button
+                    onClick={handleImport}
+                    disabled={loading || validCount === 0}
+                    className="btn-primary flex-1 justify-center"
+                  >
+                    {loading ? 'Importing…' : `Import ${validCount} Tenant${validCount !== 1 ? 's' : ''}`}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ── Step 3: Done ────────────────────────────────────── */}
+            {step === 'done' && result && (
+              <div className="text-center py-8 space-y-4">
+                <div className="text-5xl">{result.created > 0 ? '🎉' : '⚠️'}</div>
+                <div>
+                  <p
+                    className="font-semibold text-lg"
+                    style={{
+                      color: result.created > 0 ? '#15803d' : 'var(--color-text)',
+                      fontFamily: 'var(--font-display)',
+                    }}
+                  >
+                    {result.created} tenant{result.created !== 1 ? 's' : ''} imported successfully
+                  </p>
+                  {result.errors.length > 0 && (
+                    <div className="mt-3 space-y-1">
+                      {result.errors.map((e, i) => (
+                        <p key={i} className="text-xs text-red-500">
+                          {e}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <button onClick={closeModal} className="btn-primary">
+                  Done
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
