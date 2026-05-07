@@ -68,7 +68,7 @@ export default async function TenantsPage() {
                   <td>
                     {t.apartment_id ? (
                       <Link
-                        href={`/dashboard/apartments/${t.apartment_id}`}
+                        href={`/dashboard/apartments/${(t.apartments as { building_id?: string | null } | null)?.building_id ?? ''}/${t.apartment_id}`}
                         className="text-sm hover:underline"
                         style={{ color: 'var(--color-brand-light)' }}
                       >

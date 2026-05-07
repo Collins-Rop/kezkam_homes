@@ -1,14 +1,21 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Upload, X, Download, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { createClient } from '@/lib/supabase/client';
+
+interface Building {
+  id: string;
+  name: string;
+}
 
 interface ParsedRow {
   full_name: string;
   phone_number: string;
-  apartment_name: string;
+  unit_name: string;
   move_in_date: string;
+  deposit_amount?: string;
   error?: string;
 }
 
@@ -25,7 +32,7 @@ function parseCSV(text: string): ParsedRow[] {
   const hasHeader =
     firstLower.includes('name') ||
     firstLower.includes('phone') ||
-    firstLower.includes('apartment');
+    firstLower.includes('unit');
   const dataLines = hasHeader ? lines.slice(1) : lines;
 
   return dataLines.map((line) => {
@@ -40,36 +47,55 @@ function parseCSV(text: string): ParsedRow[] {
     }
     cols.push(current.trim());
 
-    const [full_name = '', phone_number = '', apartment_name = '', move_in_date = ''] = cols;
+    const [full_name = '', phone_number = '', unit_name = '', move_in_date = '', deposit_amount = ''] = cols;
 
     const errors: string[] = [];
     if (!full_name) errors.push('missing name');
     if (!phone_number) errors.push('missing phone');
-    if (!apartment_name) errors.push('missing apartment');
+    if (!unit_name) errors.push('missing unit');
 
     return {
       full_name,
       phone_number,
-      apartment_name,
+      unit_name,
       move_in_date: move_in_date || new Date().toISOString().split('T')[0],
+      deposit_amount: deposit_amount || undefined,
       error: errors.length ? errors.join(', ') : undefined,
     };
   });
 }
 
-const TEMPLATE = `Full Name,Phone Number,Apartment Name,Move-in Date
-John Doe,0712345678,Apt A101,2024-01-01
-Jane Mwangi,0723456789,Apt B202,2024-03-15
+const TEMPLATE = `Full Name,Phone Number,Unit Name,Move-in Date,Deposit Amount
+John Doe,0712345678,Apt A101,2024-01-01,10000
+Jane Mwangi,0723456789,Apt B202,2024-03-15,8000
 `;
 
 export default function ImportTenantsModal() {
   const router = useRouter();
+  const supabase = createClient();
   const [open, setOpen] = useState(false);
   const [csvText, setCsvText] = useState('');
   const [rows, setRows] = useState<ParsedRow[]>([]);
   const [step, setStep] = useState<'paste' | 'preview' | 'done'>('paste');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ created: number; errors: string[] } | null>(null);
+  const [buildings, setBuildings] = useState<Building[]>([]);
+  const [selectedBuildingId, setSelectedBuildingId] = useState('');
+
+  useEffect(() => {
+    if (open) {
+      supabase
+        .from('buildings')
+        .select('id, name')
+        .order('name')
+        .then(({ data }) => {
+          setBuildings(data ?? []);
+          if (data && data.length === 1) {
+            setSelectedBuildingId(data[0].id);
+          }
+        });
+    }
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleParse() {
     const parsed = parseCSV(csvText);
@@ -90,12 +116,13 @@ export default function ImportTenantsModal() {
   async function handleImport() {
     const validRows = rows.filter((r) => !r.error);
     if (!validRows.length) return;
+    if (!selectedBuildingId) return;
 
     setLoading(true);
     const res = await fetch('/api/tenants/bulk', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tenants: validRows }),
+      body: JSON.stringify({ tenants: validRows, building_id: selectedBuildingId }),
     });
     const data = await res.json();
     setResult({ created: data.created ?? 0, errors: data.errors ?? [] });
@@ -110,6 +137,7 @@ export default function ImportTenantsModal() {
     setRows([]);
     setStep('paste');
     setResult(null);
+    setSelectedBuildingId('');
   }
 
   const validCount = rows.filter((r) => !r.error).length;
@@ -149,6 +177,22 @@ export default function ImportTenantsModal() {
             {/* ── Step 1: Paste ───────────────────────────────────── */}
             {step === 'paste' && (
               <div className="space-y-4">
+                {/* Building selector */}
+                <div>
+                  <label className="label">Building *</label>
+                  <select
+                    className="input"
+                    value={selectedBuildingId}
+                    onChange={(e) => setSelectedBuildingId(e.target.value)}
+                    required
+                  >
+                    <option value="">Select building…</option>
+                    {buildings.map((b) => (
+                      <option key={b.id} value={b.id}>{b.name}</option>
+                    ))}
+                  </select>
+                </div>
+
                 <div
                   className="rounded-xl p-4 text-sm space-y-2"
                   style={{
@@ -170,8 +214,8 @@ export default function ImportTenantsModal() {
                       copy and paste below.
                     </li>
                     <li>
-                      The <strong>Apartment Name</strong> must exactly match an existing
-                      apartment in the system.
+                      The <strong>Unit Name</strong> must exactly match a unit in the selected
+                      building.
                     </li>
                   </ol>
                 </div>
@@ -185,7 +229,7 @@ export default function ImportTenantsModal() {
                   <textarea
                     className="input resize-none font-mono text-xs"
                     rows={10}
-                    placeholder={`Full Name,Phone Number,Apartment Name,Move-in Date\nJohn Doe,0712345678,Apt A101,2024-01-01\n…`}
+                    placeholder={`Full Name,Phone Number,Unit Name,Move-in Date,Deposit Amount\nJohn Doe,0712345678,Apt A101,2024-01-01,10000\n…`}
                     value={csvText}
                     onChange={(e) => setCsvText(e.target.value)}
                   />
@@ -198,7 +242,7 @@ export default function ImportTenantsModal() {
                   <button
                     onClick={handleParse}
                     className="btn-primary flex-1 justify-center"
-                    disabled={!csvText.trim()}
+                    disabled={!csvText.trim() || !selectedBuildingId}
                   >
                     Preview Import
                   </button>
@@ -247,8 +291,9 @@ export default function ImportTenantsModal() {
                       <tr>
                         <th>Name</th>
                         <th>Phone</th>
-                        <th>Apartment</th>
+                        <th>Unit</th>
                         <th>Move-in</th>
+                        <th>Deposit</th>
                         <th>Status</th>
                       </tr>
                     </thead>
@@ -264,8 +309,9 @@ export default function ImportTenantsModal() {
                         >
                           <td className="font-medium">{r.full_name || '—'}</td>
                           <td style={{ color: 'var(--color-text-muted)' }}>{r.phone_number || '—'}</td>
-                          <td style={{ color: 'var(--color-text-muted)' }}>{r.apartment_name || '—'}</td>
+                          <td style={{ color: 'var(--color-text-muted)' }}>{r.unit_name || '—'}</td>
                           <td style={{ color: 'var(--color-text-muted)' }}>{r.move_in_date}</td>
+                          <td style={{ color: 'var(--color-text-muted)' }}>{r.deposit_amount || '—'}</td>
                           <td>
                             {r.error ? (
                               <span className="flex items-center gap-1 text-red-600">

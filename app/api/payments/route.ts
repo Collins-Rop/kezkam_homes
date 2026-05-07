@@ -16,6 +16,7 @@ export async function POST(request: Request) {
       payment_method,
       reference_number,
       notes,
+      mpesa_message,
     } = body;
 
     if (!tenant_id || !apartment_id || !payment_month) {
@@ -41,6 +42,7 @@ export async function POST(request: Request) {
           payment_method: payment_method ?? 'M-Pesa',
           reference_number: reference_number ?? null,
           notes: notes ?? null,
+          mpesa_message: mpesa_message ?? null,
           payment_date: new Date().toISOString(),
         },
         { onConflict: 'tenant_id,payment_month' }

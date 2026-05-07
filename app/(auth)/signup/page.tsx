@@ -6,26 +6,50 @@ import { createClient } from '@/lib/supabase/client';
 import { Eye, EyeOff, Loader2, Building2 } from 'lucide-react';
 import Link from 'next/link';
 
-export default function LoginPage() {
+export default function SignUpPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPw, setConfirmPw] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-
-  async function handleLogin(e: React.FormEvent) {
+  async function handleSignUp(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters.');
+      return;
+    }
+    if (password !== confirmPw) {
+      setError('Passwords do not match.');
+      return;
+    }
+
     setLoading(true);
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+
+    // Create user via server-side API (bypasses email confirmation requirement)
+    const res = await fetch('/api/auth/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const json = await res.json();
     setLoading(false);
-    if (error) {
-      setError('Invalid email or password.');
+
+    if (!res.ok) {
+      setError(json.error || 'Signup failed. Please try again.');
     } else {
-      router.push('/dashboard');
-      router.refresh();
+      // Account created — now sign in immediately
+      const supabase = createClient();
+      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+      if (signInError) {
+        setError('Account created but sign-in failed. Please go to login page.');
+      } else {
+        router.push('/dashboard');
+        router.refresh();
+      }
     }
   }
 
@@ -68,10 +92,10 @@ export default function LoginPage() {
           className="text-lg font-semibold mb-6"
           style={{ fontFamily: 'var(--font-display)', color: 'var(--color-text)' }}
         >
-          Sign in to your account
+          Create an account
         </h2>
 
-        <form onSubmit={handleLogin} className="space-y-4">
+        <form onSubmit={handleSignUp} className="space-y-4">
           <div>
             <label className="label">Email address</label>
             <input
@@ -94,9 +118,9 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="input pr-10"
-                placeholder="••••••••"
+                placeholder="Min. 8 characters"
                 required
-                autoComplete="current-password"
+                autoComplete="new-password"
               />
               <button
                 type="button"
@@ -111,6 +135,19 @@ export default function LoginPage() {
             </div>
           </div>
 
+          <div>
+            <label className="label">Confirm password</label>
+            <input
+              type="password"
+              value={confirmPw}
+              onChange={(e) => setConfirmPw(e.target.value)}
+              className="input"
+              placeholder="••••••••"
+              required
+              autoComplete="new-password"
+            />
+          </div>
+
           {error && (
             <p className="text-sm font-medium" style={{ color: '#dc2626' }}>
               {error}
@@ -122,7 +159,7 @@ export default function LoginPage() {
             className="btn-primary w-full justify-center py-2.5"
             disabled={loading}
           >
-            {loading ? <Loader2 size={16} className="animate-spin" /> : 'Sign in'}
+            {loading ? <Loader2 size={16} className="animate-spin" /> : 'Create account'}
           </button>
         </form>
 
@@ -131,13 +168,13 @@ export default function LoginPage() {
           style={{ borderTop: '1px solid var(--color-border)' }}
         >
           <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
-            Don&apos;t have an account?{' '}
+            Already have an account?{' '}
             <Link
-              href="/signup"
+              href="/login"
               className="font-medium hover:underline"
               style={{ color: 'var(--color-brand)' }}
             >
-              Create account
+              Sign in
             </Link>
           </p>
         </div>

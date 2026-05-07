@@ -73,6 +73,7 @@ const EMPTY_FORM = (month: string) => ({
   payment_method: 'M-Pesa',
   reference_number: '',
   notes: '',
+  mpesa_message: '',
 });
 
 export default function RecordPaymentModal({
@@ -154,6 +155,7 @@ export default function RecordPaymentModal({
       rent_paid: distributed.rent,
       water_paid: distributed.water,
       garbage_paid: distributed.garbage,
+      mpesa_message: smsText,
     }));
     setError('');
     setSmsMode(false);
@@ -203,6 +205,7 @@ export default function RecordPaymentModal({
         payment_method: form.payment_method,
         reference_number: form.reference_number || null,
         notes: form.notes || null,
+        mpesa_message: form.mpesa_message || null,
       }),
     });
 

@@ -13,6 +13,7 @@ import {
   ChevronRight,
   UserCircle,
   LogOut,
+  BarChart2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
@@ -20,10 +21,11 @@ import { createClient } from '@/lib/supabase/client';
 
 const navItems = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
-  { href: '/dashboard/apartments', label: 'Apartments', icon: Building2 },
+  { href: '/dashboard/apartments', label: 'Buildings', icon: Building2 },
   { href: '/dashboard/tenants', label: 'Tenants', icon: Users },
   { href: '/dashboard/payments', label: 'Payments', icon: CreditCard },
   { href: '/dashboard/sms', label: 'SMS Logs', icon: MessageSquare },
+  { href: '/dashboard/reports', label: 'Reports', icon: BarChart2 },
 ];
 
 interface SidebarProps {

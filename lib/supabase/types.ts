@@ -1,13 +1,53 @@
 export type Json = string | number | boolean | null | { [key: string]: Json } | Json[];
 
+export type UnitType = 'bedsitter' | '1br' | '2br';
+export const UNIT_TYPE_LABELS: Record<UnitType, string> = {
+  bedsitter: 'Bedsitter',
+  '1br': '1 Bedroom',
+  '2br': '2 Bedrooms',
+};
+
+export const FLOOR_OPTIONS = [
+  { value: 'Ground', label: 'Ground Floor' },
+  { value: '1st', label: '1st Floor' },
+  { value: '2nd', label: '2nd Floor' },
+  { value: '3rd', label: '3rd Floor' },
+  { value: '4th', label: '4th Floor' },
+];
+
 export interface Database {
   public: {
     Tables: {
-      apartments: {
+      buildings: {
         Row: {
           id: string;
           name: string;
+          description: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          description?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          description?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      apartments: {
+        Row: {
+          id: string;
+          building_id: string | null;
+          name: string;
           floor: string | null;
+          unit_type: UnitType | null;
           description: string | null;
           rent_amount: number;
           water_bill: number;
@@ -18,8 +58,10 @@ export interface Database {
         };
         Insert: {
           id?: string;
+          building_id?: string | null;
           name: string;
           floor?: string | null;
+          unit_type?: UnitType | null;
           description?: string | null;
           rent_amount: number;
           water_bill?: number;
@@ -30,8 +72,10 @@ export interface Database {
         };
         Update: {
           id?: string;
+          building_id?: string | null;
           name?: string;
           floor?: string | null;
+          unit_type?: UnitType | null;
           description?: string | null;
           rent_amount?: number;
           water_bill?: number;
@@ -53,6 +97,7 @@ export interface Database {
           move_out_date: string | null;
           is_active: boolean;
           notes: string | null;
+          deposit_amount: number;
           created_at: string;
           updated_at: string;
         };
@@ -67,6 +112,7 @@ export interface Database {
           move_out_date?: string | null;
           is_active?: boolean;
           notes?: string | null;
+          deposit_amount?: number;
           created_at?: string;
           updated_at?: string;
         };
@@ -81,6 +127,7 @@ export interface Database {
           move_out_date?: string | null;
           is_active?: boolean;
           notes?: string | null;
+          deposit_amount?: number;
           updated_at?: string;
         };
         Relationships: [
@@ -107,6 +154,7 @@ export interface Database {
           payment_method: string;
           reference_number: string | null;
           notes: string | null;
+          mpesa_message: string | null;
           sms_sent: boolean;
           created_at: string;
         };
@@ -122,6 +170,7 @@ export interface Database {
           payment_method?: string;
           reference_number?: string | null;
           notes?: string | null;
+          mpesa_message?: string | null;
           sms_sent?: boolean;
           created_at?: string;
         };
@@ -133,6 +182,7 @@ export interface Database {
           payment_method?: string;
           reference_number?: string | null;
           notes?: string | null;
+          mpesa_message?: string | null;
           sms_sent?: boolean;
         };
         Relationships: [
@@ -187,6 +237,50 @@ export interface Database {
           },
         ];
       };
+      notices: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          apartment_id: string;
+          notice_date: string;
+          vacate_date: string;
+          status: 'active' | 'cancelled' | 'completed';
+          deposit_amount: number;
+          arrears_deducted: number;
+          refund_amount: number;
+          notes: string | null;
+          sms_sent: boolean;
+          cancel_reason: string | null;
+          cancelled_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          apartment_id: string;
+          notice_date?: string;
+          vacate_date: string;
+          status?: 'active' | 'cancelled' | 'completed';
+          deposit_amount?: number;
+          arrears_deducted?: number;
+          refund_amount?: number;
+          notes?: string | null;
+          sms_sent?: boolean;
+          cancel_reason?: string | null;
+          cancelled_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          status?: 'active' | 'cancelled' | 'completed';
+          cancel_reason?: string | null;
+          cancelled_at?: string | null;
+          notes?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
@@ -196,6 +290,10 @@ export interface Database {
 }
 
 // Convenience types
+export type Building = Database['public']['Tables']['buildings']['Row'];
+export type BuildingInsert = Database['public']['Tables']['buildings']['Insert'];
+export type BuildingUpdate = Database['public']['Tables']['buildings']['Update'];
+
 export type Apartment = Database['public']['Tables']['apartments']['Row'];
 export type ApartmentInsert = Database['public']['Tables']['apartments']['Insert'];
 export type ApartmentUpdate = Database['public']['Tables']['apartments']['Update'];
@@ -210,6 +308,9 @@ export type PaymentInsert = Database['public']['Tables']['payments']['Insert'];
 export type SmsLog = Database['public']['Tables']['sms_logs']['Row'];
 export type SmsLogInsert = Database['public']['Tables']['sms_logs']['Insert'];
 
+export type Notice = Database['public']['Tables']['notices']['Row'];
+export type NoticeInsert = Database['public']['Tables']['notices']['Insert'];
+
 // Extended types with joins
 export type TenantWithApartment = Tenant & {
   apartments: Apartment | null;
@@ -218,4 +319,12 @@ export type TenantWithApartment = Tenant & {
 export type PaymentWithDetails = Payment & {
   tenants: Pick<Tenant, 'full_name' | 'phone_number'> | null;
   apartments: Pick<Apartment, 'name'> | null;
+};
+
+export type ApartmentWithTenants = Apartment & {
+  tenants: Pick<Tenant, 'id' | 'full_name' | 'is_active'>[];
+};
+
+export type BuildingWithUnits = Building & {
+  apartments: ApartmentWithTenants[];
 };

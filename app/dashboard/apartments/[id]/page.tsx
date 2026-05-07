@@ -1,38 +1,70 @@
 import { createClient } from '@/lib/supabase/server';
-import { formatCurrency, formatDate, formatMonth, currentMonthISO } from '@/lib/utils';
+import { formatCurrency } from '@/lib/utils';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, Plus, UserCheck, UserX } from 'lucide-react';
-import ApartmentEditForm from '@/components/apartments/ApartmentEditForm';
-import TenantMoveOutButton from '@/components/tenants/TenantMoveOutButton';
-import AddTenantModal from '@/components/tenants/AddTenantModal';
+import { ArrowLeft, Building2, BarChart2 } from 'lucide-react';
+import type { ApartmentWithTenants, UnitType } from '@/lib/supabase/types';
+import AddUnitModal from '@/components/apartments/AddUnitModal';
+import BuildingEditForm from '@/components/apartments/BuildingEditForm';
+import { differenceInDays, parseISO } from 'date-fns';
 
 export const dynamic = 'force-dynamic';
 
-export default async function ApartmentDetailPage({ params }: { params: { id: string } }) {
+const UNIT_LABELS: Record<UnitType, string> = {
+  bedsitter: 'Bedsitter',
+  '1br': '1 Bedroom',
+  '2br': '2 Bedrooms',
+};
+
+const FLOOR_ORDER = ['Ground', '1st', '2nd', '3rd', '4th'];
+
+function sortFloor(f: string | null) {
+  const idx = FLOOR_ORDER.indexOf(f ?? '');
+  return idx === -1 ? 99 : idx;
+}
+
+export default async function BuildingDetailPage({ params }: { params: { id: string } }) {
   const supabase = createClient();
 
-  const [{ data: apt }, { data: tenants }, { data: payments }] = await Promise.all([
-    supabase.from('apartments').select('*').eq('id', params.id).single(),
+  const [{ data: building }, { data: units }, { data: activeNoticesData }] = await Promise.all([
+    supabase.from('buildings').select('*').eq('id', params.id).single(),
     supabase
-      .from('tenants')
-      .select('*')
-      .eq('apartment_id', params.id)
-      .order('created_at', { ascending: false }),
-    supabase
-      .from('payments')
-      .select('*')
-      .eq('apartment_id', params.id)
-      .order('payment_month', { ascending: false })
-      .limit(12),
+      .from('apartments')
+      .select('*, tenants(id, full_name, is_active)')
+      .eq('building_id', params.id)
+      .order('name'),
+    supabase.from('notices').select('apartment_id, vacate_date').eq('status', 'active'),
   ]);
 
-  if (!apt) notFound();
+  if (!building) notFound();
 
-  const activeTenants = tenants?.filter((t) => t.is_active) ?? [];
-  const pastTenants = tenants?.filter((t) => !t.is_active) ?? [];
-  const thisMonth = currentMonthISO();
-  const paidThisMonth = payments?.some((p) => p.payment_month === thisMonth);
+  const allUnits = (units ?? []) as ApartmentWithTenants[];
+  const activeNotices = activeNoticesData ?? [];
+
+  // Build a set of apartment IDs with active notices
+  const noticeMap = new Map<string, string>(); // apartment_id -> vacate_date
+  for (const n of activeNotices) {
+    if (n.apartment_id) noticeMap.set(n.apartment_id, n.vacate_date);
+  }
+
+  const occupied = allUnits.filter((u) => u.is_occupied).length;
+  const noticeCount = allUnits.filter((u) => noticeMap.has(u.id)).length;
+  const vacant = allUnits.length - occupied;
+
+  // Earliest vacate date among units in this building
+  const buildingNoticeVacates = allUnits
+    .filter((u) => noticeMap.has(u.id))
+    .map((u) => noticeMap.get(u.id)!)
+    .sort();
+  const earliestVacate = buildingNoticeVacates[0] ?? null;
+  const daysToEarliestVacate = earliestVacate
+    ? differenceInDays(parseISO(earliestVacate), new Date())
+    : null;
+
+  // Group units by floor
+  const floors = Array.from(new Set(allUnits.map((u) => u.floor))).sort(
+    (a, b) => sortFloor(a) - sortFloor(b)
+  );
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -42,154 +74,172 @@ export default async function ApartmentDetailPage({ params }: { params: { id: st
           <ArrowLeft size={16} />
         </Link>
         <div className="flex-1">
-          <div className="flex items-center gap-3">
-            <h1 className="page-title">{apt.name}</h1>
-            <span className={apt.is_occupied ? 'badge-green' : 'badge-gray'}>
-              {apt.is_occupied ? 'Occupied' : 'Vacant'}
-            </span>
-            {apt.is_occupied && (
-              <span className={paidThisMonth ? 'badge-green' : 'badge-red'}>
-                {paidThisMonth ? 'Paid this month' : 'Unpaid this month'}
-              </span>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="page-title">{building.name}</h1>
+            <span className="badge-gray">{allUnits.length} units</span>
+            <span className="badge-green">{occupied} occupied</span>
+            {noticeCount > 0 && (
+              <span className="badge-amber">{noticeCount} on notice</span>
             )}
           </div>
-          {apt.floor && (
+          {building.description && (
             <p className="text-sm mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
-              Floor {apt.floor}
+              {building.description}
             </p>
           )}
+        </div>
+        <div className="flex items-center gap-2">
+          <Link
+            href={`/dashboard/reports/buildings/${params.id}`}
+            className="btn-secondary !px-3 !py-1.5 !text-xs"
+          >
+            <BarChart2 size={14} /> Report
+          </Link>
+          <AddUnitModal buildingId={building.id} />
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Left column */}
-        <div className="lg:col-span-2 space-y-6">
-
-          {/* Active Tenants */}
-          <div className="card">
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="font-semibold" style={{ fontFamily: 'var(--font-display)' }}>
-                Active Tenants
-              </h2>
-              <AddTenantModal apartmentId={apt.id} />
-            </div>
-
-            {activeTenants.length > 0 ? (
-              <div className="space-y-3">
-                {activeTenants.map((tenant) => (
-                  <div
-                    key={tenant.id}
-                    className="flex items-center justify-between p-4 rounded-xl"
-                    style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)' }}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div
-                        className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold"
-                        style={{ background: 'rgba(212,133,26,0.15)', color: 'var(--color-brand)' }}
-                      >
-                        {tenant.full_name.charAt(0).toUpperCase()}
-                      </div>
-                      <div>
-                        <Link
-                          href={`/dashboard/tenants/${tenant.id}`}
-                          className="font-medium text-sm hover:underline"
-                          style={{ color: 'var(--color-text)' }}
-                        >
-                          {tenant.full_name}
-                        </Link>
-                        <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                          {tenant.phone_number} · Since {formatDate(tenant.move_in_date)}
-                        </p>
-                      </div>
-                    </div>
-                    <TenantMoveOutButton tenantId={tenant.id} tenantName={tenant.full_name} />
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8">
-                <UserCheck size={32} className="mx-auto mb-2" style={{ color: 'var(--color-text-subtle)' }} />
-                <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
-                  No active tenants. Add one to get started.
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Payment history */}
-          <div className="card">
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="font-semibold" style={{ fontFamily: 'var(--font-display)' }}>
-                Payment History
-              </h2>
-              <Link href={`/dashboard/payments?apartment=${apt.id}`} className="text-xs" style={{ color: 'var(--color-brand)' }}>
-                Record payment →
-              </Link>
-            </div>
-            {payments && payments.length > 0 ? (
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Month</th>
-                    <th>Rent</th>
-                    <th>Water</th>
-                    <th>Garbage</th>
-                    <th className="text-right">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {payments.map((p) => (
-                    <tr key={p.id}>
-                      <td>{formatMonth(p.payment_month)}</td>
-                      <td style={{ color: 'var(--color-text-muted)' }}>{formatCurrency(p.rent_paid)}</td>
-                      <td style={{ color: 'var(--color-text-muted)' }}>{formatCurrency(p.water_paid)}</td>
-                      <td style={{ color: 'var(--color-text-muted)' }}>{formatCurrency(p.garbage_paid)}</td>
-                      <td className="text-right font-medium" style={{ color: 'var(--color-brand-light)' }}>
-                        {formatCurrency(p.total_paid)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <p className="text-sm text-center py-8" style={{ color: 'var(--color-text-muted)' }}>
-                No payments recorded yet.
+        {/* Units by floor */}
+        <div className="lg:col-span-2 space-y-5">
+          {allUnits.length === 0 ? (
+            <div className="card text-center py-14">
+              <Building2 size={36} className="mx-auto mb-3" style={{ color: 'var(--color-text-subtle)' }} />
+              <p className="font-medium" style={{ color: 'var(--color-text-muted)' }}>
+                No units yet
               </p>
-            )}
-          </div>
-
-          {/* Past tenants */}
-          {pastTenants.length > 0 && (
-            <div className="card">
-              <h2 className="font-semibold mb-4" style={{ fontFamily: 'var(--font-display)' }}>
-                Past Tenants
-              </h2>
-              <div className="space-y-2">
-                {pastTenants.map((tenant) => (
-                  <div
-                    key={tenant.id}
-                    className="flex items-center justify-between p-3 rounded-lg"
-                    style={{ background: 'var(--color-surface-2)' }}
-                  >
-                    <div className="flex items-center gap-2">
-                      <UserX size={14} style={{ color: 'var(--color-text-subtle)' }} />
-                      <span className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
-                        {tenant.full_name}
-                      </span>
-                    </div>
-                    <span className="text-xs" style={{ color: 'var(--color-text-subtle)' }}>
-                      Moved out {tenant.move_out_date ? formatDate(tenant.move_out_date) : '—'}
-                    </span>
-                  </div>
-                ))}
-              </div>
+              <p className="text-sm mt-1" style={{ color: 'var(--color-text-subtle)' }}>
+                Use &ldquo;Add Unit&rdquo; to add bedsitters, 1-bed or 2-bed units.
+              </p>
             </div>
+          ) : (
+            floors.map((floor) => {
+              const floorUnits = allUnits.filter((u) => u.floor === floor);
+              return (
+                <div key={floor ?? 'no-floor'} className="card">
+                  <h2
+                    className="font-semibold mb-4 pb-3 flex items-center gap-2"
+                    style={{ fontFamily: 'var(--font-display)', borderBottom: '1px solid var(--color-border)' }}
+                  >
+                    <span
+                      className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium"
+                      style={{ background: 'rgba(176,138,36,0.1)', color: 'var(--color-brand)' }}
+                    >
+                      {floor ? `${floor} Floor` : 'Floor not set'}
+                    </span>
+                    <span style={{ color: 'var(--color-text-muted)', fontSize: '0.8rem', fontWeight: 400 }}>
+                      {floorUnits.length} unit{floorUnits.length !== 1 ? 's' : ''}
+                    </span>
+                  </h2>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {floorUnits.map((unit) => {
+                      const activeTenants = unit.tenants?.filter((t) => t.is_active) ?? [];
+                      const hasNotice = noticeMap.has(unit.id);
+                      const vacateDate = noticeMap.get(unit.id);
+                      const daysToVacate = vacateDate
+                        ? differenceInDays(parseISO(vacateDate), new Date())
+                        : null;
+
+                      return (
+                        <Link
+                          key={unit.id}
+                          href={`/dashboard/apartments/${building.id}/${unit.id}`}
+                          className="flex items-start justify-between p-4 rounded-xl transition-all duration-150"
+                          style={{
+                            background: unit.is_occupied
+                              ? 'rgba(176,138,36,0.04)'
+                              : 'var(--color-surface-2)',
+                            border: `1px solid ${unit.is_occupied ? 'rgba(176,138,36,0.18)' : 'var(--color-border)'}`,
+                          }}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-medium text-sm truncate">{unit.name}</span>
+                              {unit.unit_type && (
+                                <span className="badge-gray text-xs flex-shrink-0">
+                                  {UNIT_LABELS[unit.unit_type]}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                              {formatCurrency(unit.rent_amount + unit.water_bill + unit.garbage_bill)} / mo
+                            </p>
+                            {activeTenants.length > 0 && (
+                              <p className="text-xs mt-0.5 truncate" style={{ color: 'var(--color-brand)' }}>
+                                {activeTenants.map((t) => t.full_name).join(', ')}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex flex-col items-end gap-1 ml-2 flex-shrink-0">
+                            <span
+                              className={unit.is_occupied ? 'badge-green' : 'badge-gray'}
+                            >
+                              {unit.is_occupied ? 'Occupied' : 'Vacant'}
+                            </span>
+                            {hasNotice && (
+                              <span className="badge-amber text-xs">
+                                Notice {daysToVacate !== null ? `(${daysToVacate}d)` : ''}
+                              </span>
+                            )}
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })
           )}
         </div>
 
-        {/* Right column — edit form */}
-        <div>
-          <ApartmentEditForm apartment={apt} />
+        {/* Right: summary + edit */}
+        <div className="space-y-4">
+          {/* Summary */}
+          <div className="card space-y-3">
+            <h3 className="font-semibold text-sm pb-3" style={{ fontFamily: 'var(--font-display)', borderBottom: '1px solid var(--color-border)' }}>
+              Summary
+            </h3>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span style={{ color: 'var(--color-text-muted)' }}>Total units</span>
+                <span className="font-medium">{allUnits.length}</span>
+              </div>
+              <div className="flex justify-between">
+                <span style={{ color: 'var(--color-text-muted)' }}>Occupied (no notice)</span>
+                <span className="font-medium" style={{ color: '#15803d' }}>{occupied - noticeCount}</span>
+              </div>
+              <div className="flex justify-between">
+                <span style={{ color: 'var(--color-text-muted)' }}>With notice</span>
+                <span className="font-medium" style={{ color: '#b45309' }}>{noticeCount}</span>
+              </div>
+              <div className="flex justify-between">
+                <span style={{ color: 'var(--color-text-muted)' }}>Vacant</span>
+                <span className="font-medium">{vacant}</span>
+              </div>
+              {daysToEarliestVacate !== null && (
+                <div className="flex justify-between">
+                  <span style={{ color: 'var(--color-text-muted)' }}>Days to vacate</span>
+                  <span className="font-medium" style={{ color: '#b45309' }}>{daysToEarliestVacate}d</span>
+                </div>
+              )}
+              <div className="flex justify-between pt-1" style={{ borderTop: '1px solid var(--color-border)' }}>
+                <span style={{ color: 'var(--color-text-muted)' }}>Bedsitters</span>
+                <span>{allUnits.filter((u) => u.unit_type === 'bedsitter').length}</span>
+              </div>
+              <div className="flex justify-between">
+                <span style={{ color: 'var(--color-text-muted)' }}>1 Bedroom</span>
+                <span>{allUnits.filter((u) => u.unit_type === '1br').length}</span>
+              </div>
+              <div className="flex justify-between">
+                <span style={{ color: 'var(--color-text-muted)' }}>2 Bedrooms</span>
+                <span>{allUnits.filter((u) => u.unit_type === '2br').length}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Edit building */}
+          <BuildingEditForm building={building} />
         </div>
       </div>
     </div>
