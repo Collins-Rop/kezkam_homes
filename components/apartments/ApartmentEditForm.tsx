@@ -24,6 +24,7 @@ export default function ApartmentEditForm({ apartment, buildingId }: Props) {
     rent_amount: String(apartment.rent_amount),
     water_bill: String(apartment.water_bill),
     garbage_bill: String(apartment.garbage_bill),
+    security_bill: String(apartment.security_bill ?? 0),
     is_occupied: apartment.is_occupied,
   });
 
@@ -56,6 +57,7 @@ export default function ApartmentEditForm({ apartment, buildingId }: Props) {
         rent_amount: parseFloat(form.rent_amount) || 0,
         water_bill: parseFloat(form.water_bill) || 0,
         garbage_bill: parseFloat(form.garbage_bill) || 0,
+        security_bill: parseFloat(form.security_bill) || 0,
         is_occupied: form.is_occupied,
       })
       .eq('id', apartment.id);
@@ -75,7 +77,8 @@ export default function ApartmentEditForm({ apartment, buildingId }: Props) {
   const total =
     (parseFloat(form.rent_amount) || 0) +
     (parseFloat(form.water_bill) || 0) +
-    (parseFloat(form.garbage_bill) || 0);
+    (parseFloat(form.garbage_bill) || 0) +
+    (parseFloat(form.security_bill) || 0);
 
   return (
     <div className="card space-y-5">
@@ -133,6 +136,10 @@ export default function ApartmentEditForm({ apartment, buildingId }: Props) {
         <div>
           <label className="label">Garbage Bill (KES)</label>
           <input className="input" name="garbage_bill" type="number" min="0" value={form.garbage_bill} onChange={handleChange} />
+        </div>
+        <div>
+          <label className="label">Security Bill (KES)</label>
+          <input className="input" name="security_bill" type="number" min="0" value={form.security_bill} onChange={handleChange} />
         </div>
 
         <div

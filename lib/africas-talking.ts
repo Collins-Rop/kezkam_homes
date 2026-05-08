@@ -68,10 +68,11 @@ export function buildConfirmationSMS(params: {
   rent: number;
   water: number;
   garbage: number;
+  security: number;
   referenceNumber?: string;
 }): string {
-  const { tenantName, month, rent, water, garbage, referenceNumber } = params;
-  const total = rent + water + garbage;
+  const { tenantName, month, rent, water, garbage, security, referenceNumber } = params;
+  const total = rent + water + garbage + security;
   const ref = referenceNumber ? `\nRef: ${referenceNumber}` : '';
   return [
     `Hi ${tenantName},`,
@@ -79,6 +80,7 @@ export function buildConfirmationSMS(params: {
     `Rent: KES ${rent.toLocaleString()}`,
     `Water: KES ${water.toLocaleString()}`,
     `Garbage: KES ${garbage.toLocaleString()}`,
+    `Security: KES ${security.toLocaleString()}`,
     `Total: KES ${total.toLocaleString()}${ref}`,
     `Thank you - Kezkam Homes`,
   ].join('\n');
@@ -90,15 +92,17 @@ export function buildReminderSMS(params: {
   rent: number;
   water: number;
   garbage: number;
+  security: number;
 }): string {
-  const { tenantName, month, rent, water, garbage } = params;
-  const total = rent + water + garbage;
+  const { tenantName, month, rent, water, garbage, security } = params;
+  const total = rent + water + garbage + security;
   return [
     `Hi ${tenantName},`,
     `Your ${month} bill is due:`,
     `Rent: KES ${rent.toLocaleString()}`,
     `Water: KES ${water.toLocaleString()}`,
     `Garbage: KES ${garbage.toLocaleString()}`,
+    `Security: KES ${security.toLocaleString()}`,
     `Total: KES ${total.toLocaleString()}`,
     `Please pay by end of month.`,
     `- Kezkam Homes`,

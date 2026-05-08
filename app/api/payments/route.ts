@@ -13,6 +13,7 @@ export async function POST(request: Request) {
       rent_paid,
       water_paid,
       garbage_paid,
+      security_paid,
       payment_method,
       reference_number,
       notes,
@@ -39,6 +40,7 @@ export async function POST(request: Request) {
           rent_paid: rent_paid ?? 0,
           water_paid: water_paid ?? 0,
           garbage_paid: garbage_paid ?? 0,
+          security_paid: security_paid ?? 0,
           payment_method: payment_method ?? 'M-Pesa',
           reference_number: reference_number ?? null,
           notes: notes ?? null,
@@ -71,6 +73,7 @@ export async function POST(request: Request) {
         rent: rent_paid ?? 0,
         water: water_paid ?? 0,
         garbage: garbage_paid ?? 0,
+        security: security_paid ?? 0,
         referenceNumber: reference_number ?? undefined,
       });
 

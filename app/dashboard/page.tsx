@@ -25,7 +25,7 @@ export default async function DashboardPage() {
     supabase.from('apartments').select('*', { count: 'exact', head: true }).eq('is_occupied', true),
     supabase.from('tenants').select('*', { count: 'exact', head: true }).eq('is_active', true),
     supabase.from('payments').select('total_paid').eq('payment_month', thisMonth),
-    supabase.from('apartments').select('id, name, rent_amount, water_bill, garbage_bill, is_occupied'),
+    supabase.from('apartments').select('id, name, rent_amount, water_bill, garbage_bill, security_bill, is_occupied'),
     supabase
       .from('payments')
       .select('id, total_paid, payment_date, payment_month, tenants(full_name), apartments(name)')

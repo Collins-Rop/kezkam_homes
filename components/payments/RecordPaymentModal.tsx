@@ -34,33 +34,37 @@ function parseMpesaSMS(sms: string): { reference?: string; amount?: number } {
 function distributeAmount(
   total: number,
   apt: Record<string, number>,
-): { rent: string; water: string; garbage: string } {
+): { rent: string; water: string; garbage: string; security: string } {
   const rent = apt.rent_amount ?? 0;
   const water = apt.water_bill ?? 0;
   const garbage = apt.garbage_bill ?? 0;
-  const expected = rent + water + garbage;
+  const security = apt.security_bill ?? 0;
+  const expected = rent + water + garbage + security;
 
   if (total >= expected) {
-    // Full or overpayment — fill exactly
     return {
       rent: String(rent),
       water: String(water),
       garbage: String(garbage),
+      security: String(security),
     };
   }
 
-  // Partial — fill rent first, then water, then garbage
+  // Partial — fill rent first, then water, then garbage, then security
   let remaining = total;
   const rentPaid = Math.min(remaining, rent);
   remaining -= rentPaid;
   const waterPaid = Math.min(remaining, water);
   remaining -= waterPaid;
   const garbagePaid = Math.min(remaining, garbage);
+  remaining -= garbagePaid;
+  const securityPaid = Math.min(remaining, security);
 
   return {
     rent: String(rentPaid),
     water: String(waterPaid),
     garbage: String(garbagePaid),
+    security: String(securityPaid),
   };
 }
 
@@ -70,6 +74,7 @@ const EMPTY_FORM = (month: string) => ({
   rent_paid: '',
   water_paid: '',
   garbage_paid: '',
+  security_paid: '',
   payment_method: 'M-Pesa',
   reference_number: '',
   notes: '',
@@ -120,6 +125,7 @@ export default function RecordPaymentModal({
         rent_paid: String(a.rent_amount ?? ''),
         water_paid: String(a.water_bill ?? ''),
         garbage_paid: String(a.garbage_bill ?? ''),
+        security_paid: String(a.security_bill ?? ''),
       }));
     } else {
       setForm((f) => ({ ...f, tenant_id: tenantId, payment_month: selectedMonth }));
@@ -147,7 +153,7 @@ export default function RecordPaymentModal({
     const a = apt ?? ({} as Record<string, number>);
     const distributed = parsed.amount
       ? distributeAmount(parsed.amount, a)
-      : { rent: form.rent_paid, water: form.water_paid, garbage: form.garbage_paid };
+      : { rent: form.rent_paid, water: form.water_paid, garbage: form.garbage_paid, security: form.security_paid };
 
     setForm((f) => ({
       ...f,
@@ -155,6 +161,7 @@ export default function RecordPaymentModal({
       rent_paid: distributed.rent,
       water_paid: distributed.water,
       garbage_paid: distributed.garbage,
+      security_paid: distributed.security,
       mpesa_message: smsText,
     }));
     setError('');
@@ -202,6 +209,7 @@ export default function RecordPaymentModal({
         rent_paid: parseFloat(form.rent_paid) || 0,
         water_paid: parseFloat(form.water_paid) || 0,
         garbage_paid: parseFloat(form.garbage_paid) || 0,
+        security_paid: parseFloat(form.security_paid) || 0,
         payment_method: form.payment_method,
         reference_number: form.reference_number || null,
         notes: form.notes || null,
@@ -225,7 +233,8 @@ export default function RecordPaymentModal({
   const total =
     (parseFloat(form.rent_paid) || 0) +
     (parseFloat(form.water_paid) || 0) +
-    (parseFloat(form.garbage_paid) || 0);
+    (parseFloat(form.garbage_paid) || 0) +
+    (parseFloat(form.security_paid) || 0);
 
   return (
     <>
@@ -322,10 +331,11 @@ export default function RecordPaymentModal({
                   >
                     Expected: Rent {formatCurrency(apt.rent_amount)} · Water{' '}
                     {formatCurrency(apt.water_bill)} · Garbage{' '}
-                    {formatCurrency(apt.garbage_bill)} ={' '}
+                    {formatCurrency(apt.garbage_bill)} · Security{' '}
+                    {formatCurrency(apt.security_bill ?? 0)} ={' '}
                     <strong>
                       {formatCurrency(
-                        apt.rent_amount + apt.water_bill + apt.garbage_bill,
+                        apt.rent_amount + apt.water_bill + apt.garbage_bill + (apt.security_bill ?? 0),
                       )}
                     </strong>
                   </div>
@@ -381,7 +391,7 @@ export default function RecordPaymentModal({
                 </div>
 
                 {/* Amounts */}
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="label">Rent (KES)</label>
                     <input
@@ -414,6 +424,18 @@ export default function RecordPaymentModal({
                       type="number"
                       min="0"
                       value={form.garbage_paid}
+                      onChange={handleChange}
+                      placeholder="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Security (KES)</label>
+                    <input
+                      className="input"
+                      name="security_paid"
+                      type="number"
+                      min="0"
+                      value={form.security_paid}
                       onChange={handleChange}
                       placeholder="0"
                     />

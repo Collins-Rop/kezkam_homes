@@ -351,6 +351,12 @@ export default async function TenantDetailPage({ params }: { params: { id: strin
                     <span style={{ color: 'var(--color-text-muted)' }}>Garbage</span>
                     <span>{formatCurrency(Number(apt.garbage_bill))}</span>
                   </div>
+                  {Number(apt.security_bill) > 0 && (
+                    <div className="flex justify-between">
+                      <span style={{ color: 'var(--color-text-muted)' }}>Security</span>
+                      <span>{formatCurrency(Number(apt.security_bill))}</span>
+                    </div>
+                  )}
                   <div
                     className="flex justify-between font-semibold pt-1"
                     style={{ borderTop: '1px solid var(--color-border)', color: 'var(--color-brand-light)' }}
@@ -358,7 +364,7 @@ export default async function TenantDetailPage({ params }: { params: { id: strin
                     <span>Total</span>
                     <span>
                       {formatCurrency(
-                        Number(apt.rent_amount) + Number(apt.water_bill) + Number(apt.garbage_bill)
+                        Number(apt.rent_amount) + Number(apt.water_bill) + Number(apt.garbage_bill) + Number(apt.security_bill ?? 0)
                       )}
                     </span>
                   </div>

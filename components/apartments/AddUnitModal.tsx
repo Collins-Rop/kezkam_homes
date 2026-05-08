@@ -23,6 +23,7 @@ export default function AddUnitModal({ buildingId }: Props) {
     rent_amount: '',
     water_bill: '',
     garbage_bill: '',
+    security_bill: '',
     description: '',
   });
 
@@ -42,6 +43,7 @@ export default function AddUnitModal({ buildingId }: Props) {
       rent_amount: '',
       water_bill: '',
       garbage_bill: '',
+      security_bill: '',
       description: '',
     });
   }
@@ -64,6 +66,7 @@ export default function AddUnitModal({ buildingId }: Props) {
       rent_amount: parseFloat(form.rent_amount) || 0,
       water_bill: parseFloat(form.water_bill) || 0,
       garbage_bill: parseFloat(form.garbage_bill) || 0,
+      security_bill: parseFloat(form.security_bill) || 0,
       description: form.description.trim() || null,
     });
 
@@ -79,7 +82,8 @@ export default function AddUnitModal({ buildingId }: Props) {
   const total =
     (parseFloat(form.rent_amount) || 0) +
     (parseFloat(form.water_bill) || 0) +
-    (parseFloat(form.garbage_bill) || 0);
+    (parseFloat(form.garbage_bill) || 0) +
+    (parseFloat(form.security_bill) || 0);
 
   return (
     <>
@@ -161,7 +165,7 @@ export default function AddUnitModal({ buildingId }: Props) {
                       required
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-3 gap-3">
                     <div>
                       <label className="label">Water (KES)</label>
                       <input
@@ -186,6 +190,19 @@ export default function AddUnitModal({ buildingId }: Props) {
                         value={form.garbage_bill}
                         onChange={handleChange}
                         placeholder="e.g. 300"
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Security (KES)</label>
+                      <input
+                        className="input"
+                        name="security_bill"
+                        type="number"
+                        min="0"
+                        step="50"
+                        value={form.security_bill}
+                        onChange={handleChange}
+                        placeholder="e.g. 500"
                       />
                     </div>
                   </div>

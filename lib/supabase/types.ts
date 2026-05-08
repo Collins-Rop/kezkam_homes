@@ -59,6 +59,7 @@ export interface Database {
           rent_amount: number;
           water_bill: number;
           garbage_bill: number;
+          security_bill: number;
           is_occupied: boolean;
           created_at: string;
           updated_at: string;
@@ -73,6 +74,7 @@ export interface Database {
           rent_amount: number;
           water_bill?: number;
           garbage_bill?: number;
+          security_bill?: number;
           is_occupied?: boolean;
           created_at?: string;
           updated_at?: string;
@@ -87,6 +89,7 @@ export interface Database {
           rent_amount?: number;
           water_bill?: number;
           garbage_bill?: number;
+          security_bill?: number;
           is_occupied?: boolean;
           updated_at?: string;
         };
@@ -156,6 +159,7 @@ export interface Database {
           rent_paid: number;
           water_paid: number;
           garbage_paid: number;
+          security_paid: number;
           total_paid: number;
           payment_date: string;
           payment_method: string;
@@ -173,6 +177,7 @@ export interface Database {
           rent_paid: number;
           water_paid?: number;
           garbage_paid?: number;
+          security_paid?: number;
           payment_date?: string;
           payment_method?: string;
           reference_number?: string | null;
@@ -185,6 +190,7 @@ export interface Database {
           rent_paid?: number;
           water_paid?: number;
           garbage_paid?: number;
+          security_paid?: number;
           payment_date?: string;
           payment_method?: string;
           reference_number?: string | null;

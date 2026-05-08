@@ -12,6 +12,7 @@ type ReminderApartment = {
   rent_amount: number;
   water_bill: number;
   garbage_bill: number;
+  security_bill: number;
 };
 
 function firstRelation<T>(value: T | T[] | null | undefined) {
@@ -37,7 +38,7 @@ export async function GET(request: Request) {
   // Fetch all active tenants with their apartments
   const { data: tenants, error } = await supabase
     .from('tenants')
-    .select('id, full_name, phone_number, apartments(rent_amount, water_bill, garbage_bill)')
+    .select('id, full_name, phone_number, apartments(rent_amount, water_bill, garbage_bill, security_bill)')
     .eq('is_active', true);
 
   if (error) {
@@ -80,6 +81,7 @@ export async function GET(request: Request) {
       rent: apt.rent_amount,
       water: apt.water_bill,
       garbage: apt.garbage_bill,
+      security: apt.security_bill,
     });
 
     const smsResult = await sendSMS(tenant.phone_number, message);
