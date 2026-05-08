@@ -4,6 +4,7 @@ import { UNIT_TYPE_LABELS } from '@/lib/supabase/types';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
+import PrintButton from '@/components/PrintButton';
 import {
   format,
   parseISO,
@@ -43,13 +44,15 @@ export default async function BuildingReportPage({ params }: { params: { id: str
   const allUnits = units ?? [];
   const unitIds = new Set(allUnits.map((u) => u.id));
 
-  // Fetch payments filtered to this building's units
-  const { data: buildingPayments } = await supabase
-    .from('payments')
-    .select('*, tenants(full_name)')
-    .in('apartment_id', Array.from(unitIds))
-    .gte('payment_month', sixMonthsAgo)
-    .order('payment_month', { ascending: false });
+  // Fetch payments filtered to this building's units (guard against empty set)
+  const { data: buildingPayments } = unitIds.size > 0
+    ? await supabase
+        .from('payments')
+        .select('*, tenants(full_name)')
+        .in('apartment_id', Array.from(unitIds))
+        .gte('payment_month', sixMonthsAgo)
+        .order('payment_month', { ascending: false })
+    : { data: [] };
 
   const paymentsData = buildingPayments ?? [];
 
@@ -149,10 +152,7 @@ export default async function BuildingReportPage({ params }: { params: { id: str
             Generated {format(now, 'dd MMM yyyy HH:mm')}
           </p>
         </div>
-        <button onClick={() => {}} className="btn-secondary print:hidden" id="print-btn">
-          Print / Export
-        </button>
-        <script dangerouslySetInnerHTML={{ __html: `document.getElementById('print-btn').onclick = () => window.print()` }} />
+        <PrintButton />
       </div>
 
       {/* Overview cards */}

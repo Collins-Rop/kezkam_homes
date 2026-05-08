@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { format, parseISO, eachMonthOfInterval, startOfMonth } from 'date-fns';
+import PrintButton from '@/components/PrintButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,12 +62,7 @@ export default async function TenantStatementPage({ params }: { params: { id: st
         </Link>
         <h1 className="page-title">Tenant Statement</h1>
         <div className="ml-auto">
-          <button
-            onClick={() => window.print()}
-            className="btn-primary"
-          >
-            Print Statement
-          </button>
+          <PrintButton label="Print Statement" />
         </div>
       </div>
 
@@ -205,7 +201,7 @@ export default async function TenantStatementPage({ params }: { params: { id: st
                         {p.reference_number ?? '—'}
                       </td>
                       <td className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                        {format(parseISO(p.payment_date), 'dd MMM yyyy')}
+                        {p.payment_date ? format(parseISO(p.payment_date.slice(0, 10)), 'dd MMM yyyy') : '—'}
                       </td>
                     </tr>
                   ))}
