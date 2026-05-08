@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { formatCurrency, formatMonth, currentMonthISO } from '@/lib/utils';
 import { Building2, Users, CreditCard, TrendingUp, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
+import BuildingSelector from '@/components/dashboard/BuildingSelector';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,55 +10,104 @@ function firstRelation<T>(value: T | T[] | null | undefined) {
   return Array.isArray(value) ? value[0] ?? null : value ?? null;
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: { building?: string };
+}) {
   const supabase = createClient();
   const thisMonth = currentMonthISO();
+  const selectedBuildingId = searchParams.building ?? 'all';
 
+  // Fetch buildings for the selector
+  const { data: buildings } = await supabase
+    .from('buildings')
+    .select('id, name')
+    .order('name');
+
+  // Apartments — optionally filtered by building
+  let aptsQuery = supabase
+    .from('apartments')
+    .select('id, name, rent_amount, water_bill, garbage_bill, security_bill, is_occupied');
+
+  if (selectedBuildingId !== 'all') {
+    aptsQuery = aptsQuery.eq('building_id', selectedBuildingId);
+  }
+
+  const { data: allApartments } = await aptsQuery;
+
+  const apartmentIds = (allApartments ?? []).map((a) => a.id);
+  const totalApartments = allApartments?.length ?? 0;
+  const occupiedApartments = allApartments?.filter((a) => a.is_occupied).length ?? 0;
+
+  // Tenants and payments filtered by apartment IDs
   const [
-    { count: totalApartments },
-    { count: occupiedApartments },
     { count: totalTenants },
     { data: thisMonthPayments },
-    { data: allApartments },
     { data: recentPayments },
   ] = await Promise.all([
-    supabase.from('apartments').select('*', { count: 'exact', head: true }),
-    supabase.from('apartments').select('*', { count: 'exact', head: true }).eq('is_occupied', true),
-    supabase.from('tenants').select('*', { count: 'exact', head: true }).eq('is_active', true),
-    supabase.from('payments').select('total_paid').eq('payment_month', thisMonth),
-    supabase.from('apartments').select('id, name, rent_amount, water_bill, garbage_bill, security_bill, is_occupied'),
-    supabase
-      .from('payments')
-      .select('id, total_paid, payment_date, payment_month, tenants(full_name), apartments(name)')
-      .order('created_at', { ascending: false })
-      .limit(5),
+    apartmentIds.length > 0
+      ? supabase
+          .from('tenants')
+          .select('*', { count: 'exact', head: true })
+          .eq('is_active', true)
+          .in('apartment_id', apartmentIds)
+      : supabase
+          .from('tenants')
+          .select('*', { count: 'exact', head: true })
+          .eq('is_active', true)
+          .in('apartment_id', ['00000000-0000-0000-0000-000000000000']), // empty result when no apartments
+
+    apartmentIds.length > 0
+      ? supabase
+          .from('payments')
+          .select('total_paid')
+          .eq('payment_month', thisMonth)
+          .in('apartment_id', apartmentIds)
+      : Promise.resolve({ data: [] }),
+
+    apartmentIds.length > 0
+      ? supabase
+          .from('payments')
+          .select('id, total_paid, payment_date, payment_month, tenants(full_name), apartments(name)')
+          .eq('payment_month', thisMonth)
+          .in('apartment_id', apartmentIds)
+          .order('payment_date', { ascending: false })
+          .limit(5)
+      : supabase
+          .from('payments')
+          .select('id, total_paid, payment_date, payment_month, tenants(full_name), apartments(name)')
+          .eq('payment_month', thisMonth)
+          .order('payment_date', { ascending: false })
+          .limit(5),
   ]);
 
-  const monthlyRevenue = thisMonthPayments?.reduce((sum, p) => sum + (p.total_paid ?? 0), 0) ?? 0;
+  const monthlyRevenue = (thisMonthPayments ?? []).reduce((sum, p) => sum + (p.total_paid ?? 0), 0);
   const paidCount = thisMonthPayments?.length ?? 0;
   const activeTenants = totalTenants ?? 0;
   const unpaidCount = activeTenants - paidCount;
 
-  // Expected monthly revenue from all active apartments
-  const expectedRevenue = allApartments?.reduce(
-    (sum, a) => sum + a.rent_amount + a.water_bill + a.garbage_bill,
+  const expectedRevenue = (allApartments ?? []).reduce(
+    (sum, a) => sum + a.rent_amount + a.water_bill + a.garbage_bill + (a.security_bill ?? 0),
     0
-  ) ?? 0;
+  );
 
   const collectionRate = expectedRevenue > 0 ? Math.round((monthlyRevenue / expectedRevenue) * 100) : 0;
 
+  const selectedBuilding = buildings?.find((b) => b.id === selectedBuildingId);
+
   const stats = [
     {
-      label: 'Total Apartments',
-      value: totalApartments ?? 0,
-      sub: `${occupiedApartments ?? 0} occupied`,
+      label: 'Total Units',
+      value: totalApartments,
+      sub: `${occupiedApartments} occupied · ${totalApartments - occupiedApartments} vacant`,
       icon: Building2,
       color: 'var(--color-brand)',
     },
     {
       label: 'Active Tenants',
       value: activeTenants,
-      sub: `${(totalApartments ?? 0) - (occupiedApartments ?? 0)} vacant units`,
+      sub: `${totalApartments - occupiedApartments} vacant unit${totalApartments - occupiedApartments !== 1 ? 's' : ''}`,
       icon: Users,
       color: '#4ade80',
     },
@@ -80,11 +130,17 @@ export default async function DashboardPage() {
   return (
     <div className="space-y-8 animate-fade-in">
       {/* Header */}
-      <div>
-        <h1 className="page-title">Overview</h1>
-        <p className="text-sm mt-1" style={{ color: 'var(--color-text-muted)' }}>
-          {formatMonth(thisMonth)} snapshot
-        </p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="page-title">Overview</h1>
+          <p className="text-sm mt-1" style={{ color: 'var(--color-text-muted)' }}>
+            {selectedBuilding ? selectedBuilding.name : 'All Buildings'} · {formatMonth(thisMonth)}
+          </p>
+        </div>
+        <BuildingSelector
+          buildings={buildings ?? []}
+          selectedId={selectedBuildingId}
+        />
       </div>
 
       {/* Stat cards */}
@@ -120,7 +176,8 @@ export default async function DashboardPage() {
           <AlertCircle size={18} style={{ color: 'var(--color-brand)' }} className="flex-shrink-0" />
           <div>
             <p className="text-sm font-medium" style={{ color: 'var(--color-brand-light)' }}>
-              {unpaidCount} tenant{unpaidCount !== 1 ? 's' : ''} yet to pay for {formatMonth(thisMonth)}
+              {unpaidCount} tenant{unpaidCount !== 1 ? 's have' : ' has'} not paid for {formatMonth(thisMonth)}
+              {selectedBuilding ? ` in ${selectedBuilding.name}` : ''}
             </p>
             <Link href="/dashboard/payments" className="text-xs hover:underline" style={{ color: 'var(--color-brand)', opacity: 0.7 }}>
               View payment tracker →
@@ -133,7 +190,7 @@ export default async function DashboardPage() {
       <div className="card">
         <div className="flex items-center justify-between mb-5">
           <h2 className="font-semibold" style={{ fontFamily: 'var(--font-display)' }}>
-            Recent Payments
+            Recent Payments — {formatMonth(thisMonth)}
           </h2>
           <Link href="/dashboard/payments" className="text-xs" style={{ color: 'var(--color-brand)' }}>
             View all →
@@ -144,8 +201,7 @@ export default async function DashboardPage() {
             <thead>
               <tr>
                 <th>Tenant</th>
-                <th>Apartment</th>
-                <th>Month</th>
+                <th>Unit</th>
                 <th className="text-right">Amount</th>
               </tr>
             </thead>
@@ -158,9 +214,6 @@ export default async function DashboardPage() {
                   <td style={{ color: 'var(--color-text-muted)' }}>
                     {firstRelation(p.apartments as { name: string } | { name: string }[] | null)?.name ?? '—'}
                   </td>
-                  <td style={{ color: 'var(--color-text-muted)' }}>
-                    {formatMonth(p.payment_month)}
-                  </td>
                   <td className="text-right font-medium" style={{ color: 'var(--color-brand-light)' }}>
                     {formatCurrency(p.total_paid ?? 0)}
                   </td>
@@ -170,7 +223,7 @@ export default async function DashboardPage() {
           </table>
         ) : (
           <p className="text-sm text-center py-8" style={{ color: 'var(--color-text-muted)' }}>
-            No payments recorded yet.
+            No payments recorded yet for {formatMonth(thisMonth)}.
           </p>
         )}
       </div>
