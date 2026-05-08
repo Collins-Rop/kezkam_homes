@@ -16,6 +16,10 @@ export const FLOOR_OPTIONS = [
   { value: '2nd', label: '2nd Floor' },
   { value: '3rd', label: '3rd Floor' },
   { value: '4th', label: '4th Floor' },
+  { value: '5th', label: '5th Floor' },
+  { value: '6th', label: '6th Floor' },
+  { value: '7th', label: '7th Floor' },
+  { value: '8th', label: '8th Floor' },
 ];
 
 export interface Database {

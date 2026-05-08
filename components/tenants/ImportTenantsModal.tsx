@@ -19,6 +19,25 @@ interface ParsedRow {
   error?: string;
 }
 
+function splitLine(line: string): string[] {
+  const cols: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  for (const ch of line) {
+    if (ch === '"') { inQuotes = !inQuotes; continue; }
+    if ((ch === ',' || ch === '\t') && !inQuotes) { cols.push(current.trim()); current = ''; continue; }
+    current += ch;
+  }
+  cols.push(current.trim());
+  return cols;
+}
+
+function detectColumn(headers: string[], keywords: string[]): number {
+  return headers.findIndex((h) =>
+    keywords.some((kw) => h.toLowerCase().includes(kw))
+  );
+}
+
 function parseCSV(text: string): ParsedRow[] {
   const lines = text
     .split('\n')
@@ -27,27 +46,36 @@ function parseCSV(text: string): ParsedRow[] {
 
   if (lines.length < 2) return [];
 
-  // Detect if first line is a header
-  const firstLower = lines[0].toLowerCase();
+  const firstCols = splitLine(lines[0]);
+  const firstLower = firstCols.map((c) => c.toLowerCase());
+
+  // Check if first row looks like a header
   const hasHeader =
-    firstLower.includes('name') ||
-    firstLower.includes('phone') ||
-    firstLower.includes('unit');
+    firstLower.some((c) => c.includes('name') || c.includes('phone') || c.includes('unit'));
+
+  let nameIdx: number, phoneIdx: number, unitIdx: number, dateIdx: number, depositIdx: number;
+
+  if (hasHeader) {
+    nameIdx    = detectColumn(firstCols, ['name', 'tenant', 'full']);
+    phoneIdx   = detectColumn(firstCols, ['phone', 'mobile', 'tel', 'contact']);
+    unitIdx    = detectColumn(firstCols, ['unit', 'room', 'apartment', 'apt', 'house']);
+    dateIdx    = detectColumn(firstCols, ['date', 'move', 'start']);
+    depositIdx = detectColumn(firstCols, ['deposit', 'security']);
+  } else {
+    // Fall back to positional: Name, Phone, Unit, Date, Deposit
+    [nameIdx, phoneIdx, unitIdx, dateIdx, depositIdx] = [0, 1, 2, 3, 4];
+  }
+
   const dataLines = hasHeader ? lines.slice(1) : lines;
 
   return dataLines.map((line) => {
-    // Handle quoted fields
-    const cols: string[] = [];
-    let current = '';
-    let inQuotes = false;
-    for (const ch of line) {
-      if (ch === '"') { inQuotes = !inQuotes; continue; }
-      if (ch === ',' && !inQuotes) { cols.push(current.trim()); current = ''; continue; }
-      current += ch;
-    }
-    cols.push(current.trim());
+    const cols = splitLine(line);
 
-    const [full_name = '', phone_number = '', unit_name = '', move_in_date = '', deposit_amount = ''] = cols;
+    const full_name     = nameIdx    >= 0 ? (cols[nameIdx]    ?? '') : '';
+    const phone_number  = phoneIdx   >= 0 ? (cols[phoneIdx]   ?? '') : '';
+    const unit_name     = unitIdx    >= 0 ? (cols[unitIdx]    ?? '') : '';
+    const move_in_raw   = dateIdx    >= 0 ? (cols[dateIdx]    ?? '') : '';
+    const deposit_raw   = depositIdx >= 0 ? (cols[depositIdx] ?? '') : '';
 
     const errors: string[] = [];
     if (!full_name) errors.push('missing name');
@@ -58,8 +86,8 @@ function parseCSV(text: string): ParsedRow[] {
       full_name,
       phone_number,
       unit_name,
-      move_in_date: move_in_date || new Date().toISOString().split('T')[0],
-      deposit_amount: deposit_amount || undefined,
+      move_in_date: move_in_raw || new Date().toISOString().split('T')[0],
+      deposit_amount: deposit_raw || undefined,
       error: errors.length ? errors.join(', ') : undefined,
     };
   });
@@ -207,10 +235,13 @@ export default function ImportTenantsModal() {
                     className="space-y-1 list-decimal list-inside"
                     style={{ color: 'var(--color-text-muted)' }}
                   >
-                    <li>Download the template below and open in Excel.</li>
-                    <li>Fill in your tenant data (one tenant per row).</li>
+                    <li>Open your Excel file with tenant data.</li>
                     <li>
-                      Save as CSV (File → Save As → CSV) then open it, select all (Ctrl+A),
+                      Make sure it has columns for <strong>Name</strong>, <strong>Phone</strong>,
+                      and <strong>Unit</strong> — column order does not matter.
+                    </li>
+                    <li>
+                      Save as CSV (File → Save As → CSV), open the file, select all (Ctrl+A),
                       copy and paste below.
                     </li>
                     <li>
