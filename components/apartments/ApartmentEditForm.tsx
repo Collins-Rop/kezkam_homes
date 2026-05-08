@@ -24,6 +24,7 @@ export default function ApartmentEditForm({ apartment, buildingId }: Props) {
     rent_amount: String(apartment.rent_amount),
     water_bill: String(apartment.water_bill),
     garbage_bill: String(apartment.garbage_bill),
+    is_occupied: apartment.is_occupied,
   });
 
   const [loading, setLoading] = useState(false);
@@ -55,6 +56,7 @@ export default function ApartmentEditForm({ apartment, buildingId }: Props) {
         rent_amount: parseFloat(form.rent_amount) || 0,
         water_bill: parseFloat(form.water_bill) || 0,
         garbage_bill: parseFloat(form.garbage_bill) || 0,
+        is_occupied: form.is_occupied,
       })
       .eq('id', apartment.id);
 
@@ -105,6 +107,21 @@ export default function ApartmentEditForm({ apartment, buildingId }: Props) {
             ))}
           </select>
         </div>
+        <div>
+          <label className="label">Status</label>
+          <select
+            className="input"
+            value={form.is_occupied ? 'occupied' : 'vacant'}
+            onChange={(e) => {
+              setForm((f) => ({ ...f, is_occupied: e.target.value === 'occupied' }));
+              setSuccess(false);
+            }}
+          >
+            <option value="vacant">Vacant</option>
+            <option value="occupied">Occupied</option>
+          </select>
+        </div>
+
         <div>
           <label className="label">Rent (KES)</label>
           <input className="input" name="rent_amount" type="number" min="0" value={form.rent_amount} onChange={handleChange} />
