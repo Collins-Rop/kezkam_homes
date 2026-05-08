@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { formatCurrency } from '@/lib/utils';
+import { UNIT_TYPE_LABELS } from '@/lib/supabase/types';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
@@ -23,7 +24,6 @@ export default async function BuildingReportPage({ params }: { params: { id: str
   const [
     { data: building },
     { data: units },
-    { data: payments },
     { data: activeNotices },
   ] = await Promise.all([
     supabase.from('buildings').select('*').eq('id', params.id).single(),
@@ -32,16 +32,6 @@ export default async function BuildingReportPage({ params }: { params: { id: str
       .select('*, tenants(id, full_name, is_active, move_in_date)')
       .eq('building_id', params.id)
       .order('name'),
-    supabase
-      .from('payments')
-      .select('*, tenants(full_name)')
-      .in(
-        'apartment_id',
-        // We'll join after; use a sub-select workaround via building_id using apartments
-        // We fetch all and filter in JS since we don't have a direct building_id on payments
-        []
-      )
-      .gte('payment_month', sixMonthsAgo),
     supabase
       .from('notices')
       .select('*, tenants(full_name), apartments(name)')
@@ -80,10 +70,10 @@ export default async function BuildingReportPage({ params }: { params: { id: str
   );
   const currentMonthPaid = currentMonthPayments.reduce((s, p) => s + (p.total_paid ?? 0), 0);
 
-  // Expected this month = sum of rent+water+garbage for all occupied units
+  // Expected this month = sum of rent+water+garbage+security for all occupied units
   const expectedThisMonth = allUnits
     .filter((u) => u.is_occupied)
-    .reduce((s, u) => s + u.rent_amount + u.water_bill + u.garbage_bill, 0);
+    .reduce((s, u) => s + u.rent_amount + u.water_bill + u.garbage_bill + (u.security_bill ?? 0), 0);
 
   const collectionRate =
     expectedThisMonth > 0
@@ -106,7 +96,7 @@ export default async function BuildingReportPage({ params }: { params: { id: str
       return u.is_occupied || paidUnitIds.has(u.id);
     });
     const expected = expectedUnits.reduce(
-      (s, u) => s + u.rent_amount + u.water_bill + u.garbage_bill,
+      (s, u) => s + u.rent_amount + u.water_bill + u.garbage_bill + (u.security_bill ?? 0),
       0
     );
     const outstanding = Math.max(0, expected - collected);
@@ -125,17 +115,11 @@ export default async function BuildingReportPage({ params }: { params: { id: str
   });
 
   // Unit type breakdown
-  const unitTypes = ['bedsitter', '1br', '2br'] as const;
-  const typeLabels: Record<string, string> = {
-    bedsitter: 'Bedsitter',
-    '1br': '1 Bedroom',
-    '2br': '2 Bedrooms',
-  };
-  const typeStats = unitTypes.map((t) => {
+  const typeStats = (Object.keys(UNIT_TYPE_LABELS) as (keyof typeof UNIT_TYPE_LABELS)[]).map((t) => {
     const typeUnits = allUnits.filter((u) => u.unit_type === t);
     const occ = typeUnits.filter((u) => u.is_occupied).length;
     const notice = typeUnits.filter((u) => noticeUnitIds.has(u.id)).length;
-    return { type: t, label: typeLabels[t], total: typeUnits.length, occupied: occ, vacant: typeUnits.length - occ, notice };
+    return { type: t, label: UNIT_TYPE_LABELS[t], total: typeUnits.length, occupied: occ, vacant: typeUnits.length - occ, notice };
   }).filter((t) => t.total > 0);
 
   // Unpaid tenants this month
@@ -148,7 +132,7 @@ export default async function BuildingReportPage({ params }: { params: { id: str
       return activeTenants.map((t) => ({
         ...t,
         unit: u.name,
-        expected: u.rent_amount + u.water_bill + u.garbage_bill,
+        expected: u.rent_amount + u.water_bill + u.garbage_bill + (u.security_bill ?? 0),
       }));
     });
 
