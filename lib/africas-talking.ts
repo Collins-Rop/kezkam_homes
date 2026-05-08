@@ -1,6 +1,6 @@
 // Africa's Talking SMS utility
 // Docs: https://developers.africastalking.com/docs/sms/sending
-import { normalizePhone } from '@/lib/utils';
+import { selectPhone } from '@/lib/utils';
 
 let atInstance: ReturnType<typeof import('africastalking')> | null = null;
 
@@ -23,7 +23,7 @@ export interface SMSResult {
 }
 
 export async function sendSMS(to: string, message: string): Promise<SMSResult> {
-  const normalizedTo = normalizePhone(to);
+  const normalizedTo = selectPhone(to);
 
   // In development / missing credentials, log and skip
   if (!process.env.AT_API_KEY || !process.env.AT_USERNAME) {

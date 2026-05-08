@@ -36,14 +36,36 @@ export function monthOptions(count = 12): { label: string; value: string }[] {
 }
 
 export function normalizePhone(raw: string): string {
-  // If multiple numbers are stored (space/comma/slash separated), take the first part
-  const first = raw.trim().split(/[\s,\/;]+/)[0] ?? raw;
-  const digits = first.replace(/\D/g, '');
-
+  const digits = raw.trim().replace(/\D/g, '');
   if (digits.startsWith('0') && digits.length === 10) return `+254${digits.slice(1)}`;
   if (digits.startsWith('254') && digits.length === 12) return `+${digits}`;
   if (digits.startsWith('7') && digits.length === 9) return `+254${digits}`;
-  if (digits.startsWith('7') && digits.length === 8) return `+2547${digits}`; // missing leading digit e.g. 72907195 → +25472907195... unlikely but best effort
+  if (digits.startsWith('7') && digits.length === 8) return `+2547${digits}`; // best-effort for 8-digit
+  return raw.trim();
+}
 
-  return first; // return the first segment even if we can't normalize
+/** Returns true if a +254XXXXXXXXX number belongs to Safaricom (M-Pesa). */
+export function isSafaricom(normalized: string): boolean {
+  if (!normalized.startsWith('+254') || normalized.length !== 13) return false;
+  const prefix = parseInt(normalized.slice(4, 7), 10); // 3-digit prefix e.g. 722
+  return (
+    (prefix >= 700 && prefix <= 729) || // 0700–0729
+    (prefix >= 740 && prefix <= 748) || // 0740–0748
+    (prefix >= 757 && prefix <= 759) || // 0757–0759
+    (prefix >= 768 && prefix <= 769) || // 0768–0769
+    (prefix >= 790 && prefix <= 799) || // 0790–0799
+    (prefix >= 110 && prefix <= 115)    // 0110–0115 (newer Safaricom)
+  );
+}
+
+/**
+ * When a tenant has multiple numbers (space/comma/slash separated),
+ * pick the Safaricom number first (for M-Pesa). Falls back to the first valid number.
+ */
+export function selectPhone(raw: string): string {
+  const parts = raw.trim().split(/[\s,\/;]+/).filter(Boolean);
+  if (parts.length <= 1) return normalizePhone(raw);
+
+  const normalized = parts.map(normalizePhone);
+  return normalized.find(isSafaricom) ?? normalized[0] ?? normalizePhone(raw);
 }
