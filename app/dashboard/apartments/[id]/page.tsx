@@ -3,18 +3,14 @@ import { formatCurrency } from '@/lib/utils';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, Building2, BarChart2 } from 'lucide-react';
-import type { ApartmentWithTenants, UnitType } from '@/lib/supabase/types';
+import { UNIT_TYPE_LABELS, type ApartmentWithTenants, type UnitType } from '@/lib/supabase/types';
 import AddUnitModal from '@/components/apartments/AddUnitModal';
 import BuildingEditForm from '@/components/apartments/BuildingEditForm';
 import { differenceInDays, parseISO } from 'date-fns';
 
 export const dynamic = 'force-dynamic';
 
-const UNIT_LABELS: Record<UnitType, string> = {
-  bedsitter: 'Bedsitter',
-  '1br': '1 Bedroom',
-  '2br': '2 Bedrooms',
-};
+const UNIT_LABELS = UNIT_TYPE_LABELS;
 
 const FLOOR_ORDER = ['Ground', '1st', '2nd', '3rd', '4th'];
 

@@ -6,15 +6,11 @@ import { ArrowLeft, UserCheck, UserX } from 'lucide-react';
 import ApartmentEditForm from '@/components/apartments/ApartmentEditForm';
 import AddTenantModal from '@/components/tenants/AddTenantModal';
 import TenantMoveOutButton from '@/components/tenants/TenantMoveOutButton';
-import type { UnitType } from '@/lib/supabase/types';
+import { UNIT_TYPE_LABELS, type UnitType } from '@/lib/supabase/types';
 
 export const dynamic = 'force-dynamic';
 
-const UNIT_LABELS: Record<UnitType, string> = {
-  bedsitter: 'Bedsitter',
-  '1br': '1 Bedroom',
-  '2br': '2 Bedrooms',
-};
+const UNIT_LABELS = UNIT_TYPE_LABELS;
 
 export default async function UnitDetailPage({
   params,
