@@ -1,7 +1,8 @@
 import { createServiceClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 
-const ADMIN_EMAIL = 'admin@kezkamhomes.app';
+const ADMIN_EMAIL = 'kimutai1136@gmail.com';
+const ADMIN_USERNAME = 'admin';
 const ADMIN_PASSWORD = 'kezkam@2026';
 
 export async function POST() {
@@ -27,7 +28,8 @@ export async function POST() {
     const { error } = await supabase.auth.admin.createUser({
       email: ADMIN_EMAIL,
       password: ADMIN_PASSWORD,
-      email_confirm: true, // skip email verification
+      email_confirm: true,
+      user_metadata: { username: ADMIN_USERNAME },
     });
 
     if (error) {

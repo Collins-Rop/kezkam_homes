@@ -8,7 +8,7 @@ import Link from 'next/link';
 
 export default function LoginPage() {
   const router = useRouter();
-  const [username, setUsername] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState('');
@@ -18,12 +18,26 @@ export default function LoginPage() {
     e.preventDefault();
     setError('');
     setLoading(true);
+
+    let email = identifier.trim();
+
+    // If not an email, resolve username → email via server
+    if (!email.includes('@')) {
+      const res = await fetch(`/api/auth/resolve-username?username=${encodeURIComponent(email)}`);
+      if (!res.ok) {
+        setError('Invalid username or password.');
+        setLoading(false);
+        return;
+      }
+      const data = await res.json();
+      email = data.email;
+    }
+
     const supabase = createClient();
-    const email = `${username.trim().toLowerCase()}@kezkamhomes.app`;
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
     if (error) {
-      setError('Invalid email or password.');
+      setError('Invalid email/username or password.');
     } else {
       router.push('/dashboard');
       router.refresh();
@@ -69,18 +83,18 @@ export default function LoginPage() {
           className="text-lg font-semibold mb-6"
           style={{ fontFamily: 'var(--font-display)', color: 'var(--color-text)' }}
         >
-          Admin Login
+          Sign in to your account
         </h2>
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
-            <label className="label">Username</label>
+            <label className="label">Email or Username</label>
             <input
               type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
               className="input"
-              placeholder="admin"
+              placeholder="you@example.com or admin"
               required
               autoFocus
               autoComplete="username"

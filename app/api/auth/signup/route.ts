@@ -3,10 +3,13 @@ import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
   try {
-    const { email, password } = await request.json();
+    const { email, username, password } = await request.json();
 
     if (!email || !password) {
       return NextResponse.json({ error: 'Email and password are required.' }, { status: 400 });
+    }
+    if (!username) {
+      return NextResponse.json({ error: 'Username is required.' }, { status: 400 });
     }
 
     if (password.length < 8) {
@@ -15,11 +18,13 @@ export async function POST(request: Request) {
 
     const supabase = createServiceClient();
 
-    // Check if user already exists
+    // Check if user already exists (email or username)
     const { data: { users } } = await supabase.auth.admin.listUsers();
-    const exists = users?.some((u) => u.email === email);
-    if (exists) {
+    if (users?.some((u) => u.email === email)) {
       return NextResponse.json({ error: 'An account with this email already exists.' }, { status: 400 });
+    }
+    if (users?.some((u) => u.user_metadata?.username === username.toLowerCase())) {
+      return NextResponse.json({ error: 'That username is already taken.' }, { status: 400 });
     }
 
     // Create user with email confirmed (no verification email needed)
@@ -27,6 +32,7 @@ export async function POST(request: Request) {
       email,
       password,
       email_confirm: true,
+      user_metadata: { username: username.toLowerCase() },
     });
 
     if (error) {

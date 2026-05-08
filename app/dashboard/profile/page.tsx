@@ -89,8 +89,7 @@ export default function ProfilePage() {
     );
   }
 
-  const displayName = user.email?.split('@')[0] ?? 'User';
-  const username = displayName;
+  const username = (user.user_metadata?.username as string | undefined) ?? user.email?.split('@')[0] ?? 'User';
 
   return (
     <div className="space-y-6 animate-fade-in max-w-lg">
@@ -131,6 +130,15 @@ export default function ProfilePage() {
                 Username
               </p>
               <p className="text-sm font-medium">{username}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-4" />
+            <div>
+              <p className="text-xs uppercase tracking-widest" style={{ color: 'var(--color-text-subtle)' }}>
+                Email
+              </p>
+              <p className="text-sm">{user.email}</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
