@@ -14,6 +14,8 @@ export async function POST(request: Request) {
       water_paid,
       garbage_paid,
       security_paid,
+      deposit_paid,
+      payment_date,
       payment_method,
       reference_number,
       notes,
@@ -41,11 +43,12 @@ export async function POST(request: Request) {
           water_paid: water_paid ?? 0,
           garbage_paid: garbage_paid ?? 0,
           security_paid: security_paid ?? 0,
+          deposit_paid: deposit_paid ?? 0,
           payment_method: payment_method ?? 'M-Pesa',
           reference_number: reference_number ?? null,
           notes: notes ?? null,
           mpesa_message: mpesa_message ?? null,
-          payment_date: new Date().toISOString(),
+          payment_date: payment_date ?? new Date().toISOString(),
         },
         { onConflict: 'tenant_id,payment_month' }
       )
@@ -74,6 +77,7 @@ export async function POST(request: Request) {
         water: water_paid ?? 0,
         garbage: garbage_paid ?? 0,
         security: security_paid ?? 0,
+        deposit: deposit_paid ?? 0,
         referenceNumber: reference_number ?? undefined,
       });
 

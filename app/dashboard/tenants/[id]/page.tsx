@@ -123,9 +123,11 @@ export default async function TenantDetailPage({ params }: { params: { id: strin
                 <thead>
                   <tr>
                     <th>Month</th>
+                    <th>Date Paid</th>
                     <th>Rent</th>
                     <th>Water</th>
                     <th>Garbage</th>
+                    <th>Deposit</th>
                     <th>Method</th>
                     <th className="text-right">Total</th>
                   </tr>
@@ -134,9 +136,15 @@ export default async function TenantDetailPage({ params }: { params: { id: strin
                   {payments.map((p) => (
                     <tr key={p.id}>
                       <td className="font-medium">{formatMonth(p.payment_month)}</td>
+                      <td style={{ color: 'var(--color-text-muted)' }}>
+                        {p.payment_date ? formatDate(p.payment_date.slice(0, 10)) : '—'}
+                      </td>
                       <td style={{ color: 'var(--color-text-muted)' }}>{formatCurrency(p.rent_paid)}</td>
                       <td style={{ color: 'var(--color-text-muted)' }}>{formatCurrency(p.water_paid)}</td>
                       <td style={{ color: 'var(--color-text-muted)' }}>{formatCurrency(p.garbage_paid)}</td>
+                      <td style={{ color: (p as { deposit_paid?: number }).deposit_paid ? 'var(--color-brand-light)' : 'var(--color-text-subtle)' }}>
+                        {formatCurrency((p as { deposit_paid?: number }).deposit_paid ?? 0)}
+                      </td>
                       <td>
                         <span className="badge-gray text-xs">{p.payment_method}</span>
                       </td>

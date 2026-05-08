@@ -69,18 +69,20 @@ export function buildConfirmationSMS(params: {
   water: number;
   garbage: number;
   security: number;
+  deposit?: number;
   referenceNumber?: string;
 }): string {
-  const { tenantName, month, rent, water, garbage, security, referenceNumber } = params;
-  const total = rent + water + garbage + security;
+  const { tenantName, month, rent, water, garbage, security, deposit, referenceNumber } = params;
+  const total = rent + water + garbage + security + (deposit ?? 0);
   const ref = referenceNumber ? `\nRef: ${referenceNumber}` : '';
+  const depositLine = deposit && deposit > 0 ? `\nDeposit: KES ${deposit.toLocaleString()}` : '';
   return [
     `Hi ${tenantName},`,
     `Payment confirmed for ${month}.`,
     `Rent: KES ${rent.toLocaleString()}`,
     `Water: KES ${water.toLocaleString()}`,
     `Garbage: KES ${garbage.toLocaleString()}`,
-    `Security: KES ${security.toLocaleString()}`,
+    `Security: KES ${security.toLocaleString()}${depositLine}`,
     `Total: KES ${total.toLocaleString()}${ref}`,
     `Thank you - Kezkam Homes`,
   ].join('\n');

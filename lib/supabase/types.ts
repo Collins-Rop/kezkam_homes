@@ -1,6 +1,15 @@
 export type Json = string | number | boolean | null | { [key: string]: Json } | Json[];
 
-export type UnitType = 'single_room' | 'double_room' | 'shop' | 'bedsitter' | '1br' | '2br';
+export type UnitType =
+  | 'single_room'
+  | 'double_room'
+  | 'shop'
+  | 'bedsitter'
+  | '1br'
+  | '2br'
+  | 'bungalow'
+  | 'mansionette'
+  | 'own_compound';
 export const UNIT_TYPE_LABELS: Record<UnitType, string> = {
   single_room: 'Single Room',
   double_room: 'Double Room',
@@ -8,6 +17,9 @@ export const UNIT_TYPE_LABELS: Record<UnitType, string> = {
   bedsitter: 'Bedsitter',
   '1br': '1 Bedroom',
   '2br': '2 Bedrooms',
+  bungalow: 'Bungalow',
+  mansionette: 'Mansionette',
+  own_compound: 'Own Compound',
 };
 
 export const FLOOR_OPTIONS = [
@@ -160,6 +172,7 @@ export interface Database {
           water_paid: number;
           garbage_paid: number;
           security_paid: number;
+          deposit_paid: number;
           total_paid: number;
           payment_date: string;
           payment_method: string;
@@ -178,6 +191,7 @@ export interface Database {
           water_paid?: number;
           garbage_paid?: number;
           security_paid?: number;
+          deposit_paid?: number;
           payment_date?: string;
           payment_method?: string;
           reference_number?: string | null;
@@ -191,6 +205,7 @@ export interface Database {
           water_paid?: number;
           garbage_paid?: number;
           security_paid?: number;
+          deposit_paid?: number;
           payment_date?: string;
           payment_method?: string;
           reference_number?: string | null;
