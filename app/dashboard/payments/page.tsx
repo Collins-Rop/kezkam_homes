@@ -19,7 +19,7 @@ export default async function PaymentsPage({ searchParams }: Props) {
     await Promise.all([
       supabase
         .from('tenants')
-        .select('*, apartments(*)')
+        .select('*, apartments(*, buildings(id, name))')
         .eq('is_active', true)
         .order('full_name'),
       supabase.from('payments').select('*').eq('payment_month', selectedMonth),

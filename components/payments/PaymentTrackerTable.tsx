@@ -8,12 +8,14 @@ import {
   ChevronRight,
   Search,
   CreditCard,
+  Building2,
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import RecordPaymentModal from './RecordPaymentModal';
 import type { Tenant, Apartment, Payment } from '@/lib/supabase/types';
 
-type TenantWithApt = Tenant & { apartments: Apartment | null };
+type AptWithBuilding = Apartment & { buildings?: { id: string; name: string } | null };
+type TenantWithApt = Tenant & { apartments: AptWithBuilding | null };
 
 interface Props {
   tenants: TenantWithApt[];
@@ -21,6 +23,21 @@ interface Props {
   selectedMonth: string;
   allTenants: (Tenant & { apartments: unknown })[];
   apartments: Pick<Apartment, 'id' | 'name'>[];
+}
+
+interface AptGroup {
+  apt: AptWithBuilding;
+  tenants: TenantWithApt[];
+}
+
+interface BuildingGroup {
+  buildingId: string;
+  buildingName: string;
+  unpaidGroups: AptGroup[]; // apartments where at least one tenant hasn't paid
+  paidGroups: AptGroup[];   // apartments where every tenant has paid
+  paidCount: number;
+  totalCount: number;
+  revenue: number;
 }
 
 export default function PaymentTrackerTable({
@@ -31,95 +48,138 @@ export default function PaymentTrackerTable({
   apartments,
 }: Props) {
   const [search, setSearch] = useState('');
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [recordingFor, setRecordingFor] = useState<string | null>(null); // tenant id
+  const [collapsedBuildings, setCollapsedBuildings] = useState<Set<string>>(new Set());
+  const [collapsedPaidSections, setCollapsedPaidSections] = useState<Set<string>>(new Set());
+  const [recordingFor, setRecordingFor] = useState<string | null>(null);
 
   const paymentMap = useMemo(
     () => new Map(payments.map((p) => [p.tenant_id, p])),
     [payments],
   );
 
-  // Group tenants by apartment
-  const groups = useMemo(() => {
-    const map = new Map<
-      string,
-      { apt: Apartment; tenants: TenantWithApt[] }
-    >();
-
-    tenants.forEach((t) => {
-      if (!t.apartment_id || !t.apartments) return;
-      const key = t.apartment_id;
-      if (!map.has(key)) {
-        map.set(key, { apt: t.apartments, tenants: [] });
+  // Build building → apartment → tenant groups
+  const buildingGroups = useMemo((): BuildingGroup[] => {
+    // Step 1: group tenants by apartment
+    const aptMap = new Map<string, AptGroup>();
+    for (const t of tenants) {
+      if (!t.apartment_id || !t.apartments) continue;
+      if (!aptMap.has(t.apartment_id)) {
+        aptMap.set(t.apartment_id, { apt: t.apartments, tenants: [] });
       }
-      map.get(key)!.tenants.push(t);
-    });
+      aptMap.get(t.apartment_id)!.tenants.push(t);
+    }
 
-    // Sort: apartments with unpaid tenants first, then by name
-    return Array.from(map.values()).sort((a, b) => {
-      const aUnpaid = a.tenants.filter((t) => !paymentMap.has(t.id)).length;
-      const bUnpaid = b.tenants.filter((t) => !paymentMap.has(t.id)).length;
-      if (aUnpaid !== bUnpaid) return bUnpaid - aUnpaid; // unpaid first
-      return a.apt.name.localeCompare(b.apt.name);
+    // Step 2: group apartments by building
+    const bldMap = new Map<string, BuildingGroup>();
+    for (const { apt, tenants: aptTenants } of Array.from(aptMap.values())) {
+      const buildingId = apt.building_id ?? '__none__';
+      const buildingName = apt.buildings?.name ?? 'No Building';
+
+      if (!bldMap.has(buildingId)) {
+        bldMap.set(buildingId, {
+          buildingId,
+          buildingName,
+          unpaidGroups: [],
+          paidGroups: [],
+          paidCount: 0,
+          totalCount: 0,
+          revenue: 0,
+        });
+      }
+
+      const bg = bldMap.get(buildingId)!;
+      const allPaid = aptTenants.every((t: TenantWithApt) => paymentMap.has(t.id));
+
+      if (allPaid) {
+        bg.paidGroups.push({ apt, tenants: aptTenants });
+      } else {
+        bg.unpaidGroups.push({ apt, tenants: aptTenants });
+      }
+
+      for (const t of aptTenants) {
+        bg.totalCount++;
+        if (paymentMap.has(t.id)) {
+          bg.paidCount++;
+          bg.revenue += paymentMap.get(t.id)!.total_paid ?? 0;
+        }
+      }
+    }
+
+    const result: BuildingGroup[] = Array.from(bldMap.values());
+
+    // Sort apartments within each building: unpaid by name, paid by name
+    for (const bg of result) {
+      bg.unpaidGroups.sort((a: AptGroup, b: AptGroup) => a.apt.name.localeCompare(b.apt.name));
+      bg.paidGroups.sort((a: AptGroup, b: AptGroup) => a.apt.name.localeCompare(b.apt.name));
+    }
+
+    // Sort buildings: those with unpaid tenants first, then alphabetically
+    return result.sort((a: BuildingGroup, b: BuildingGroup) => {
+      const aUnpaid = a.totalCount - a.paidCount;
+      const bUnpaid = b.totalCount - b.paidCount;
+      if (aUnpaid !== bUnpaid) return bUnpaid - aUnpaid;
+      return a.buildingName.localeCompare(b.buildingName);
     });
   }, [tenants, paymentMap]);
 
-  // Also handle tenants with no apartment
-  const noAptTenants = useMemo(
-    () => tenants.filter((t) => !t.apartment_id),
-    [tenants],
-  );
-
+  // Overall stats
   const totalPaid = useMemo(
     () => tenants.filter((t) => paymentMap.has(t.id)).length,
     [tenants, paymentMap],
   );
-
   const totalRevenue = useMemo(
     () => payments.reduce((s, p) => s + (p.total_paid ?? 0), 0),
     [payments],
   );
 
-  // Filter by search term
-  const filteredGroups = useMemo(() => {
-    if (!search.trim()) return groups;
+  // Apply search filter across all groups
+  const filteredBuildingGroups = useMemo(() => {
+    if (!search.trim()) return buildingGroups;
     const q = search.toLowerCase();
-    return groups
-      .map((g) => ({
-        ...g,
-        tenants: g.tenants.filter(
-          (t) =>
-            t.full_name.toLowerCase().includes(q) ||
-            g.apt.name.toLowerCase().includes(q),
-        ),
-      }))
-      .filter((g) => g.tenants.length > 0);
-  }, [groups, search]);
+    return buildingGroups
+      .map((bg) => {
+        function filterGroups(groups: AptGroup[]): AptGroup[] {
+          return groups
+            .map((g) => ({
+              ...g,
+              tenants: g.tenants.filter(
+                (t) =>
+                  t.full_name.toLowerCase().includes(q) ||
+                  g.apt.name.toLowerCase().includes(q),
+              ),
+            }))
+            .filter((g) => g.tenants.length > 0);
+        }
+        return {
+          ...bg,
+          unpaidGroups: filterGroups(bg.unpaidGroups),
+          paidGroups: filterGroups(bg.paidGroups),
+        };
+      })
+      .filter((bg) => bg.unpaidGroups.length + bg.paidGroups.length > 0);
+  }, [buildingGroups, search]);
 
-  function toggleApt(id: string) {
-    setExpanded((prev) => {
+  const noAptTenants = useMemo(() => tenants.filter((t) => !t.apartment_id), [tenants]);
+
+  function toggleBuilding(id: string) {
+    setCollapsedBuildings((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
   }
 
-  function expandAll() {
-    setExpanded(new Set(groups.map((g) => g.apt.id)));
+  function togglePaidSection(id: string) {
+    setCollapsedPaidSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
   }
-
-  function collapseAll() {
-    setExpanded(new Set());
-  }
-
-  const recordingTenant = recordingFor
-    ? allTenants.find((t) => t.id === recordingFor) ?? null
-    : null;
 
   return (
     <div className="space-y-4">
-      {/* ── Summary bar ──────────────────────────────────────────────── */}
+      {/* Summary bar */}
       <div
         className="rounded-xl p-4"
         style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
@@ -134,13 +194,9 @@ export default function PaymentTrackerTable({
             </span>
           </div>
           <span className="text-sm font-semibold" style={{ color: 'var(--color-brand)' }}>
-            {tenants.length > 0
-              ? Math.round((totalPaid / tenants.length) * 100)
-              : 0}
-            % collected
+            {tenants.length > 0 ? Math.round((totalPaid / tenants.length) * 100) : 0}% collected
           </span>
         </div>
-        {/* Progress bar */}
         <div
           className="w-full rounded-full overflow-hidden"
           style={{ height: '8px', background: 'var(--color-surface-2)' }}
@@ -150,7 +206,7 @@ export default function PaymentTrackerTable({
             style={{
               width: `${tenants.length > 0 ? (totalPaid / tenants.length) * 100 : 0}%`,
               background:
-                totalPaid === tenants.length
+                totalPaid === tenants.length && tenants.length > 0
                   ? 'linear-gradient(90deg,#16a34a,#22c55e)'
                   : 'linear-gradient(90deg,var(--color-brand-dark),var(--color-brand),var(--color-brand-light))',
             }}
@@ -158,225 +214,167 @@ export default function PaymentTrackerTable({
         </div>
       </div>
 
-      {/* ── Toolbar ──────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-3">
-        {/* Search */}
-        <div className="relative flex-1 min-w-48">
-          <Search
-            size={15}
-            className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
-            style={{ color: 'var(--color-text-subtle)' }}
-          />
-          <input
-            className="input !pl-9"
-            placeholder="Search tenants or apartments…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-        <button
-          type="button"
-          onClick={expandAll}
-          className="btn-secondary !py-2 !text-xs"
-        >
-          Expand all
-        </button>
-        <button
-          type="button"
-          onClick={collapseAll}
-          className="btn-secondary !py-2 !text-xs"
-        >
-          Collapse all
-        </button>
+      {/* Search */}
+      <div className="relative">
+        <Search
+          size={15}
+          className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+          style={{ color: 'var(--color-text-subtle)' }}
+        />
+        <input
+          className="input !pl-9"
+          placeholder="Search tenants or apartments…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
       </div>
 
-      {/* ── Apartment groups ─────────────────────────────────────────── */}
-      <div className="space-y-3">
-        {filteredGroups.map(({ apt, tenants: aptTenants }) => {
-          const paidCount = aptTenants.filter((t) => paymentMap.has(t.id)).length;
-          const isFullyPaid = paidCount === aptTenants.length;
-          const isPartiallyPaid = paidCount > 0 && !isFullyPaid;
-          const isOpen = expanded.has(apt.id) || !!search.trim();
-          const aptCollected = aptTenants.reduce(
-            (s, t) => s + (paymentMap.get(t.id)?.total_paid ?? 0),
-            0,
-          );
-          const aptExpected = aptTenants.length * (apt.rent_amount + apt.water_bill + apt.garbage_bill);
-
-          const headerColor = isFullyPaid
-            ? 'rgba(22,163,74,0.08)'
-            : isPartiallyPaid
-              ? 'rgba(217,119,6,0.08)'
-              : 'rgba(220,38,38,0.06)';
-          const borderColor = isFullyPaid
-            ? 'rgba(22,163,74,0.25)'
-            : isPartiallyPaid
-              ? 'rgba(217,119,6,0.25)'
-              : 'rgba(220,38,38,0.2)';
-          const badgeColor = isFullyPaid
-            ? '#15803d'
-            : isPartiallyPaid
-              ? '#b45309'
-              : '#b91c1c';
+      {/* Building groups */}
+      <div className="space-y-5">
+        {filteredBuildingGroups.map((bg) => {
+          const isCollapsed = collapsedBuildings.has(bg.buildingId);
+          const isPaidCollapsed = collapsedPaidSections.has(bg.buildingId);
+          const unpaidCount = bg.totalCount - bg.paidCount;
+          const pct = bg.totalCount > 0 ? Math.round((bg.paidCount / bg.totalCount) * 100) : 0;
+          const allBuildingPaid = unpaidCount === 0 && bg.totalCount > 0;
 
           return (
             <div
-              key={apt.id}
-              className="rounded-xl overflow-hidden"
-              style={{ border: `1px solid ${borderColor}` }}
+              key={bg.buildingId}
+              className="rounded-2xl overflow-hidden"
+              style={{ border: '1px solid var(--color-border)' }}
             >
-              {/* Apartment header */}
+              {/* Building header */}
               <button
                 type="button"
-                className="w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors"
-                style={{ background: headerColor }}
-                onClick={() => toggleApt(apt.id)}
+                className="w-full flex items-center gap-3 px-5 py-4 text-left"
+                style={{
+                  background: allBuildingPaid
+                    ? 'rgba(22,163,74,0.06)'
+                    : 'rgba(212,133,26,0.06)',
+                  borderBottom: isCollapsed ? 'none' : '1px solid var(--color-border)',
+                }}
+                onClick={() => toggleBuilding(bg.buildingId)}
               >
-                {isOpen ? (
-                  <ChevronDown size={16} style={{ color: badgeColor, flexShrink: 0 }} />
-                ) : (
-                  <ChevronRight size={16} style={{ color: badgeColor, flexShrink: 0 }} />
-                )}
+                <Building2
+                  size={18}
+                  style={{ color: allBuildingPaid ? '#16a34a' : 'var(--color-brand)', flexShrink: 0 }}
+                />
                 <div className="flex-1 min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      className="font-semibold text-sm"
-                      style={{ fontFamily: 'var(--font-display)', color: 'var(--color-text)', fontSize: '1rem' }}
-                    >
-                      {apt.name}
-                    </span>
-                    {apt.floor && (
-                      <span className="text-xs" style={{ color: 'var(--color-text-subtle)' }}>
-                        Floor {apt.floor}
-                      </span>
-                    )}
+                  <div
+                    className="font-bold text-base truncate"
+                    style={{ fontFamily: 'var(--font-display)', color: 'var(--color-text)' }}
+                  >
+                    {bg.buildingName}
                   </div>
                   <div className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
-                    {formatCurrency(aptCollected)} of {formatCurrency(aptExpected)} collected
+                    {bg.paidCount}/{bg.totalCount} tenants paid · {formatCurrency(bg.revenue)} collected
                   </div>
                 </div>
-                {/* Badge */}
-                <span
-                  className="flex-shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full"
-                  style={{
-                    background: isFullyPaid
-                      ? 'rgba(22,163,74,0.12)'
-                      : isPartiallyPaid
-                        ? 'rgba(217,119,6,0.12)'
-                        : 'rgba(220,38,38,0.1)',
-                    color: badgeColor,
-                  }}
-                >
-                  {paidCount}/{aptTenants.length} paid
-                </span>
+                {/* Mini progress */}
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <div
+                    className="rounded-full overflow-hidden"
+                    style={{ width: '60px', height: '6px', background: 'var(--color-surface-2)' }}
+                  >
+                    <div
+                      className="h-full rounded-full"
+                      style={{
+                        width: `${pct}%`,
+                        background: allBuildingPaid ? '#16a34a' : 'var(--color-brand)',
+                      }}
+                    />
+                  </div>
+                  <span
+                    className="text-xs font-semibold w-8 text-right"
+                    style={{ color: allBuildingPaid ? '#16a34a' : 'var(--color-brand)' }}
+                  >
+                    {pct}%
+                  </span>
+                  {isCollapsed
+                    ? <ChevronRight size={16} style={{ color: 'var(--color-text-subtle)' }} />
+                    : <ChevronDown size={16} style={{ color: 'var(--color-text-subtle)' }} />
+                  }
+                </div>
               </button>
 
-              {/* Tenant rows */}
-              {isOpen && (
+              {!isCollapsed && (
                 <div style={{ background: 'var(--color-surface)' }}>
-                  {aptTenants.map((tenant, idx) => {
-                    const payment = paymentMap.get(tenant.id);
-                    const expected =
-                      apt.rent_amount + apt.water_bill + apt.garbage_bill;
 
-                    return (
+                  {/* ── Unpaid section ── */}
+                  {bg.unpaidGroups.length > 0 && (
+                    <div>
                       <div
-                        key={tenant.id}
-                        className="flex flex-wrap items-center gap-3 px-4 py-3.5 transition-colors"
+                        className="px-5 py-2.5 flex items-center gap-2"
                         style={{
-                          borderTop: idx === 0 ? '1px solid var(--color-border)' : undefined,
-                          borderBottom:
-                            idx < aptTenants.length - 1
-                              ? '1px solid var(--color-border)'
-                              : undefined,
-                          background: payment
-                            ? 'rgba(22,163,74,0.03)'
-                            : 'rgba(220,38,38,0.02)',
+                          background: 'rgba(220,38,38,0.04)',
+                          borderBottom: '1px solid rgba(220,38,38,0.12)',
                         }}
                       >
-                        {/* Status icon */}
-                        <div className="flex-shrink-0">
-                          {payment ? (
-                            <CheckCircle size={18} style={{ color: '#16a34a' }} />
-                          ) : (
-                            <XCircle size={18} style={{ color: '#dc2626' }} />
-                          )}
-                        </div>
-
-                        {/* Name + phone */}
-                        <div className="flex-1 min-w-0">
-                          <p
-                            className="font-medium text-sm truncate"
-                            style={{ color: 'var(--color-text)' }}
-                          >
-                            {tenant.full_name}
-                          </p>
-                          <p
-                            className="text-xs truncate"
-                            style={{ color: 'var(--color-text-subtle)' }}
-                          >
-                            {tenant.phone_number}
-                          </p>
-                        </div>
-
-                        {/* Amount info */}
-                        <div className="text-right hidden sm:block">
-                          {payment ? (
-                            <>
-                              <p
-                                className="text-sm font-semibold"
-                                style={{ color: 'var(--color-brand-light)' }}
-                              >
-                                {formatCurrency(payment.total_paid)}
-                              </p>
-                              <p
-                                className="text-xs"
-                                style={{ color: 'var(--color-text-subtle)' }}
-                              >
-                                {payment.payment_method}
-                                {payment.reference_number
-                                  ? ` · ${payment.reference_number}`
-                                  : ''}
-                              </p>
-                            </>
-                          ) : (
-                            <p className="text-xs" style={{ color: 'var(--color-text-subtle)' }}>
-                              Expected {formatCurrency(expected)}
-                            </p>
-                          )}
-                        </div>
-
-                        {/* Action */}
-                        {payment ? (
-                          <span
-                            className="flex-shrink-0 text-xs px-2 py-1 rounded-full"
-                            style={{
-                              background: 'rgba(22,163,74,0.1)',
-                              color: '#15803d',
-                              border: '1px solid rgba(22,163,74,0.2)',
-                            }}
-                          >
-                            {payment.sms_sent ? '✓ SMS sent' : 'Paid'}
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setRecordingFor(tenant.id);
-                            }}
-                            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-                            style={{
-                              background: 'var(--color-brand)',
-                              color: '#fff',
-                            }}
-                          >
-                            <CreditCard size={12} />
-                            Record
-                          </button>
-                        )}
+                        <XCircle size={14} style={{ color: '#dc2626' }} />
+                        <span
+                          className="text-xs font-semibold uppercase tracking-wide"
+                          style={{ color: '#b91c1c' }}
+                        >
+                          Unpaid — {bg.unpaidGroups.reduce((s, g) => s + g.tenants.filter((t) => !paymentMap.has(t.id)).length, 0)} tenants
+                        </span>
                       </div>
-                    );
-                  })}
+                      <div className="divide-y" style={{ borderColor: 'var(--color-border)' }}>
+                        {bg.unpaidGroups.map(({ apt, tenants: aptTenants }) => (
+                          <AptBlock
+                            key={apt.id}
+                            apt={apt}
+                            tenants={aptTenants}
+                            paymentMap={paymentMap}
+                            onRecord={(id) => setRecordingFor(id)}
+                            showSearch={!!search.trim()}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Paid section ── */}
+                  {bg.paidGroups.length > 0 && (
+                    <div>
+                      <button
+                        type="button"
+                        className="w-full px-5 py-2.5 flex items-center gap-2 text-left"
+                        style={{
+                          background: 'rgba(22,163,74,0.04)',
+                          borderTop: bg.unpaidGroups.length > 0 ? '1px solid var(--color-border)' : 'none',
+                          borderBottom: isPaidCollapsed ? 'none' : '1px solid rgba(22,163,74,0.12)',
+                        }}
+                        onClick={() => togglePaidSection(bg.buildingId)}
+                      >
+                        <CheckCircle size={14} style={{ color: '#16a34a' }} />
+                        <span
+                          className="text-xs font-semibold uppercase tracking-wide flex-1"
+                          style={{ color: '#15803d' }}
+                        >
+                          Paid — {bg.paidGroups.reduce((s, g) => s + g.tenants.length, 0)} tenants
+                        </span>
+                        {isPaidCollapsed
+                          ? <ChevronRight size={13} style={{ color: '#15803d' }} />
+                          : <ChevronDown size={13} style={{ color: '#15803d' }} />
+                        }
+                      </button>
+                      {!isPaidCollapsed && (
+                        <div className="divide-y" style={{ borderColor: 'var(--color-border)' }}>
+                          {bg.paidGroups.map(({ apt, tenants: aptTenants }) => (
+                            <AptBlock
+                              key={apt.id}
+                              apt={apt}
+                              tenants={aptTenants}
+                              paymentMap={paymentMap}
+                              onRecord={(id) => setRecordingFor(id)}
+                              showSearch={!!search.trim()}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -399,23 +397,16 @@ export default function PaymentTrackerTable({
               <div
                 key={tenant.id}
                 className="flex items-center gap-3 px-4 py-3"
-                style={{
-                  borderTop: '1px solid var(--color-border)',
-                  background: 'var(--color-surface)',
-                }}
+                style={{ borderTop: '1px solid var(--color-border)', background: 'var(--color-surface)' }}
               >
-                <span className="text-sm flex-1" style={{ color: 'var(--color-text-muted)' }}>
-                  {tenant.full_name}
-                </span>
-                <span className="text-xs" style={{ color: 'var(--color-text-subtle)' }}>
-                  No apartment assigned
-                </span>
+                <span className="text-sm flex-1" style={{ color: 'var(--color-text-muted)' }}>{tenant.full_name}</span>
+                <span className="text-xs" style={{ color: 'var(--color-text-subtle)' }}>No apartment assigned</span>
               </div>
             ))}
           </div>
         )}
 
-        {filteredGroups.length === 0 && noAptTenants.length === 0 && (
+        {filteredBuildingGroups.length === 0 && noAptTenants.length === 0 && (
           <div
             className="text-center py-16 rounded-xl"
             style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
@@ -427,7 +418,7 @@ export default function PaymentTrackerTable({
         )}
       </div>
 
-      {/* ── Externally-controlled RecordPaymentModal ────────────────── */}
+      {/* Externally-controlled RecordPaymentModal */}
       {recordingFor && (
         <RecordPaymentModal
           tenants={allTenants}
@@ -437,6 +428,132 @@ export default function PaymentTrackerTable({
           isOpen={true}
           onClose={() => setRecordingFor(null)}
         />
+      )}
+    </div>
+  );
+}
+
+// ── Apartment block ────────────────────────────────────────────────────────────
+function AptBlock({
+  apt,
+  tenants,
+  paymentMap,
+  onRecord,
+  showSearch,
+}: {
+  apt: AptWithBuilding;
+  tenants: TenantWithApt[];
+  paymentMap: Map<string, Payment>;
+  onRecord: (id: string) => void;
+  showSearch: boolean;
+}) {
+  const [open, setOpen] = useState(showSearch);
+  const paidCount = tenants.filter((t) => paymentMap.has(t.id)).length;
+  const aptCollected = tenants.reduce((s, t) => s + (paymentMap.get(t.id)?.total_paid ?? 0), 0);
+  const allPaid = paidCount === tenants.length;
+  const badgeColor = allPaid ? '#15803d' : '#b91c1c';
+
+  return (
+    <div>
+      {/* Apt header row */}
+      <button
+        type="button"
+        className="w-full flex items-center gap-3 px-5 py-3 text-left transition-colors hover:opacity-90"
+        style={{ background: 'var(--color-surface)' }}
+        onClick={() => setOpen((v) => !v)}
+      >
+        {open
+          ? <ChevronDown size={14} style={{ color: badgeColor, flexShrink: 0 }} />
+          : <ChevronRight size={14} style={{ color: badgeColor, flexShrink: 0 }} />
+        }
+        <span className="flex-1 font-medium text-sm" style={{ color: 'var(--color-text)' }}>
+          {apt.name}
+          {apt.floor && (
+            <span className="ml-2 text-xs font-normal" style={{ color: 'var(--color-text-subtle)' }}>
+              Floor {apt.floor}
+            </span>
+          )}
+        </span>
+        <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+          {formatCurrency(aptCollected)}
+        </span>
+        <span
+          className="text-xs font-semibold px-2 py-0.5 rounded-full"
+          style={{
+            background: allPaid ? 'rgba(22,163,74,0.1)' : 'rgba(220,38,38,0.08)',
+            color: badgeColor,
+          }}
+        >
+          {paidCount}/{tenants.length}
+        </span>
+      </button>
+
+      {/* Tenant rows */}
+      {open && (
+        <div>
+          {tenants.map((tenant) => {
+            const payment = paymentMap.get(tenant.id);
+            const expected = apt.rent_amount + apt.water_bill + apt.garbage_bill + (apt.security_bill ?? 0);
+
+            return (
+              <div
+                key={tenant.id}
+                className="flex flex-wrap items-center gap-3 px-7 py-3"
+                style={{
+                  borderTop: '1px solid var(--color-border)',
+                  background: payment ? 'rgba(22,163,74,0.03)' : 'rgba(220,38,38,0.02)',
+                }}
+              >
+                {payment
+                  ? <CheckCircle size={16} style={{ color: '#16a34a', flexShrink: 0 }} />
+                  : <XCircle size={16} style={{ color: '#dc2626', flexShrink: 0 }} />
+                }
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-sm truncate" style={{ color: 'var(--color-text)' }}>
+                    {tenant.full_name}
+                  </p>
+                  <p className="text-xs truncate" style={{ color: 'var(--color-text-subtle)' }}>
+                    {tenant.phone_number}
+                  </p>
+                </div>
+                <div className="text-right hidden sm:block">
+                  {payment ? (
+                    <>
+                      <p className="text-sm font-semibold" style={{ color: 'var(--color-brand-light)' }}>
+                        {formatCurrency(payment.total_paid)}
+                      </p>
+                      <p className="text-xs" style={{ color: 'var(--color-text-subtle)' }}>
+                        {payment.payment_method}{payment.reference_number ? ` · ${payment.reference_number}` : ''}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-xs" style={{ color: 'var(--color-text-subtle)' }}>
+                      Expected {formatCurrency(expected)}
+                    </p>
+                  )}
+                </div>
+                {payment ? (
+                  <span
+                    className="flex-shrink-0 text-xs px-2 py-1 rounded-full"
+                    style={{ background: 'rgba(22,163,74,0.1)', color: '#15803d', border: '1px solid rgba(22,163,74,0.2)' }}
+                  >
+                    {payment.sms_sent ? '✓ SMS sent' : 'Paid'}
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onRecord(tenant.id)}
+                    className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+                    style={{ background: 'var(--color-brand)', color: '#fff' }}
+                  >
+                    <CreditCard size={12} />
+                    Record
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );

@@ -332,6 +332,29 @@ export default function RecordPaymentModal({
                   </select>
                 </div>
 
+                {/* Payment date — prominent, near top */}
+                <div
+                  className="p-3 rounded-xl"
+                  style={{
+                    background: 'rgba(212,133,26,0.07)',
+                    border: '1px solid rgba(212,133,26,0.35)',
+                  }}
+                >
+                  <label className="label" style={{ color: 'var(--color-brand)' }}>
+                    Date Payment Was Made *
+                  </label>
+                  <input
+                    className="input mt-1"
+                    name="payment_date"
+                    type="date"
+                    value={form.payment_date}
+                    onChange={handleChange}
+                  />
+                  <p className="text-xs mt-1" style={{ color: 'var(--color-brand)', opacity: 0.7 }}>
+                    Use the actual date from the M-Pesa message, not today's date.
+                  </p>
+                </div>
+
                 {/* From month + months count */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -375,18 +398,6 @@ export default function RecordPaymentModal({
                     <p>{coveredMonths.map((m) => m.label).join(', ')}</p>
                   </div>
                 )}
-
-                {/* Payment date */}
-                <div>
-                  <label className="label">Payment Date *</label>
-                  <input
-                    className="input"
-                    name="payment_date"
-                    type="date"
-                    value={form.payment_date}
-                    onChange={handleChange}
-                  />
-                </div>
 
                 {/* Expected amounts */}
                 {apt && (
