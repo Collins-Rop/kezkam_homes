@@ -13,6 +13,9 @@ import {
 import { formatCurrency } from '@/lib/utils';
 import RecordPaymentModal from './RecordPaymentModal';
 import type { Tenant, Apartment, Payment } from '@/lib/supabase/types';
+import { FLOOR_OPTIONS } from '@/lib/supabase/types';
+
+const FLOOR_ORDER = FLOOR_OPTIONS.map((f) => f.value);
 
 type AptWithBuilding = Apartment & { buildings?: { id: string; name: string } | null };
 type TenantWithApt = Tenant & { apartments: AptWithBuilding | null };
@@ -107,10 +110,17 @@ export default function PaymentTrackerTable({
 
     const result: BuildingGroup[] = Array.from(bldMap.values());
 
-    // Sort apartments within each building: unpaid by name, paid by name
+    // Sort apartments within each building: floor first, then name
+    function sortByFloorThenName(a: AptGroup, b: AptGroup): number {
+      const ai = FLOOR_ORDER.indexOf(a.apt.floor ?? '');
+      const bi = FLOOR_ORDER.indexOf(b.apt.floor ?? '');
+      const floorCmp = (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+      if (floorCmp !== 0) return floorCmp;
+      return a.apt.name.localeCompare(b.apt.name);
+    }
     for (const bg of result) {
-      bg.unpaidGroups.sort((a: AptGroup, b: AptGroup) => a.apt.name.localeCompare(b.apt.name));
-      bg.paidGroups.sort((a: AptGroup, b: AptGroup) => a.apt.name.localeCompare(b.apt.name));
+      bg.unpaidGroups.sort(sortByFloorThenName);
+      bg.paidGroups.sort(sortByFloorThenName);
     }
 
     // Sort buildings: those with unpaid tenants first, then alphabetically
@@ -470,7 +480,7 @@ function AptBlock({
           {apt.name}
           {apt.floor && (
             <span className="ml-2 text-xs font-normal" style={{ color: 'var(--color-text-subtle)' }}>
-              Floor {apt.floor}
+              {FLOOR_OPTIONS.find((f) => f.value === apt.floor)?.label ?? apt.floor}
             </span>
           )}
         </span>
