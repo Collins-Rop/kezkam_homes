@@ -2,18 +2,14 @@
 // Docs: https://developers.africastalking.com/docs/sms/sending
 import { selectPhone } from '@/lib/utils';
 
-let atInstance: ReturnType<typeof import('africastalking')> | null = null;
-
+// Do NOT cache the instance — always create fresh so env var updates take effect immediately
 function getATInstance() {
-  if (!atInstance) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const AfricasTalking = require('africastalking');
-    atInstance = AfricasTalking({
-      apiKey: process.env.AT_API_KEY!,
-      username: process.env.AT_USERNAME!,
-    });
-  }
-  return atInstance!;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const AfricasTalking = require('africastalking');
+  return AfricasTalking({
+    apiKey: process.env.AT_API_KEY!,
+    username: process.env.AT_USERNAME!,
+  });
 }
 
 export interface SMSResult {

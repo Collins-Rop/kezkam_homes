@@ -91,6 +91,7 @@ export async function POST(request: Request) {
         message_type: 'confirmation',
         status: smsResult.success ? 'sent' : 'failed',
         at_message_id: smsResult.messageId ?? null,
+        error_message: smsResult.error ?? null,
       });
 
       if (smsResult.success) {

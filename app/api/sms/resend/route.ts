@@ -24,6 +24,7 @@ export async function POST(request: Request) {
       .update({
         status: result.success ? 'sent' : 'failed',
         at_message_id: result.messageId ?? null,
+        error_message: result.error ?? null,
       })
       .eq('id', log_id);
 
