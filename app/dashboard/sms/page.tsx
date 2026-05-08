@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { MessageSquare, CheckCircle, XCircle } from 'lucide-react';
+import ResendButton from '@/components/sms/ResendButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,6 +25,19 @@ export default async function SmsPage() {
         </p>
       </div>
 
+      {failedCount > 0 && (
+        <div
+          className="px-4 py-3 rounded-xl text-sm"
+          style={{
+            background: 'rgba(220,38,38,0.06)',
+            border: '1px solid rgba(220,38,38,0.15)',
+            color: '#b91c1c',
+          }}
+        >
+          <strong>{failedCount} failed.</strong> Common causes: low Africa&apos;s Talking balance, invalid phone number, or two numbers in one field. Use Resend to retry after fixing the issue.
+        </div>
+      )}
+
       <div className="card">
         {logs && logs.length > 0 ? (
           <table className="data-table">
@@ -35,6 +49,7 @@ export default async function SmsPage() {
                 <th>Status</th>
                 <th>Message</th>
                 <th>Sent At</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -70,6 +85,9 @@ export default async function SmsPage() {
                       dateStyle: 'medium',
                       timeStyle: 'short',
                     })}
+                  </td>
+                  <td>
+                    {log.status === 'failed' && <ResendButton logId={log.id} />}
                   </td>
                 </tr>
               ))}

@@ -35,16 +35,15 @@ export function monthOptions(count = 12): { label: string; value: string }[] {
   return options;
 }
 
-export function normalizePhone(phone: string): string {
-  const digits = phone.replace(/\D/g, '');
-  if (digits.startsWith('0') && digits.length === 10) {
-    return `+254${digits.slice(1)}`;
-  }
-  if (digits.startsWith('254') && digits.length === 12) {
-    return `+${digits}`;
-  }
-  if (digits.startsWith('7') && digits.length === 9) {
-    return `+254${digits}`;
-  }
-  return phone;
+export function normalizePhone(raw: string): string {
+  // If multiple numbers are stored (space/comma/slash separated), take the first part
+  const first = raw.trim().split(/[\s,\/;]+/)[0] ?? raw;
+  const digits = first.replace(/\D/g, '');
+
+  if (digits.startsWith('0') && digits.length === 10) return `+254${digits.slice(1)}`;
+  if (digits.startsWith('254') && digits.length === 12) return `+${digits}`;
+  if (digits.startsWith('7') && digits.length === 9) return `+254${digits}`;
+  if (digits.startsWith('7') && digits.length === 8) return `+2547${digits}`; // missing leading digit e.g. 72907195 → +25472907195... unlikely but best effort
+
+  return first; // return the first segment even if we can't normalize
 }

@@ -1,5 +1,6 @@
 // Africa's Talking SMS utility
 // Docs: https://developers.africastalking.com/docs/sms/sending
+import { normalizePhone } from '@/lib/utils';
 
 let atInstance: ReturnType<typeof import('africastalking')> | null = null;
 
@@ -22,10 +23,12 @@ export interface SMSResult {
 }
 
 export async function sendSMS(to: string, message: string): Promise<SMSResult> {
+  const normalizedTo = normalizePhone(to);
+
   // In development / missing credentials, log and skip
   if (!process.env.AT_API_KEY || !process.env.AT_USERNAME) {
     console.warn('[SMS] Africa\'s Talking credentials not set — skipping send');
-    console.log(`[SMS] Would send to ${to}: ${message}`);
+    console.log(`[SMS] Would send to ${normalizedTo}: ${message}`);
     return { success: true, messageId: 'dev-mock-id' };
   }
 
@@ -34,7 +37,7 @@ export async function sendSMS(to: string, message: string): Promise<SMSResult> {
     const sms = at.SMS;
 
     const options: Record<string, unknown> = {
-      to: [to],
+      to: [normalizedTo],
       message,
     };
 
