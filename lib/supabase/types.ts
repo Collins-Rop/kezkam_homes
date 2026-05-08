@@ -1,7 +1,10 @@
 export type Json = string | number | boolean | null | { [key: string]: Json } | Json[];
 
-export type UnitType = 'bedsitter' | '1br' | '2br';
+export type UnitType = 'single_room' | 'double_room' | 'shop' | 'bedsitter' | '1br' | '2br';
 export const UNIT_TYPE_LABELS: Record<UnitType, string> = {
+  single_room: 'Single Room',
+  double_room: 'Double Room',
+  shop: 'Shop',
   bedsitter: 'Bedsitter',
   '1br': '1 Bedroom',
   '2br': '2 Bedrooms',
