@@ -8,7 +8,7 @@ import Link from 'next/link';
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState('');
@@ -19,6 +19,7 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     const supabase = createClient();
+    const email = `${username.trim().toLowerCase()}@kezkamhomes.app`;
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
     if (error) {
@@ -68,21 +69,21 @@ export default function LoginPage() {
           className="text-lg font-semibold mb-6"
           style={{ fontFamily: 'var(--font-display)', color: 'var(--color-text)' }}
         >
-          Sign in to your account
+          Admin Login
         </h2>
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
-            <label className="label">Email address</label>
+            <label className="label">Username</label>
             <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               className="input"
-              placeholder="you@example.com"
+              placeholder="admin"
               required
               autoFocus
-              autoComplete="email"
+              autoComplete="username"
             />
           </div>
 

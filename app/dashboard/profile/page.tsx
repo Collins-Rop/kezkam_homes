@@ -90,6 +90,7 @@ export default function ProfilePage() {
   }
 
   const displayName = user.email?.split('@')[0] ?? 'User';
+  const username = displayName;
 
   return (
     <div className="space-y-6 animate-fade-in max-w-lg">
@@ -107,14 +108,14 @@ export default function ProfilePage() {
             className="w-14 h-14 rounded-full flex items-center justify-center text-xl font-bold flex-shrink-0"
             style={{ background: 'rgba(176,138,36,0.12)', color: 'var(--color-brand)' }}
           >
-            {(user.email ?? 'U').charAt(0).toUpperCase()}
+            {username.charAt(0).toUpperCase()}
           </div>
           <div>
             <p
               className="text-lg font-semibold"
               style={{ fontFamily: 'var(--font-display)', color: 'var(--color-text)' }}
             >
-              {user.email}
+              {username}
             </p>
             <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
               Kezkam Homes Staff
@@ -127,9 +128,9 @@ export default function ProfilePage() {
             <UserCircle size={16} style={{ color: 'var(--color-text-subtle)' }} />
             <div>
               <p className="text-xs uppercase tracking-widest" style={{ color: 'var(--color-text-subtle)' }}>
-                Email
+                Username
               </p>
-              <p className="text-sm font-medium">{user.email}</p>
+              <p className="text-sm font-medium">{username}</p>
             </div>
           </div>
           <div className="flex items-center gap-3">

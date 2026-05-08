@@ -8,7 +8,7 @@ import Link from 'next/link';
 
 export default function SignUpPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPw, setConfirmPw] = useState('');
   const [showPw, setShowPw] = useState(false);
@@ -18,6 +18,10 @@ export default function SignUpPage() {
     e.preventDefault();
     setError('');
 
+    if (!username.trim()) {
+      setError('Username is required.');
+      return;
+    }
     if (password.length < 8) {
       setError('Password must be at least 8 characters.');
       return;
@@ -28,6 +32,7 @@ export default function SignUpPage() {
     }
 
     setLoading(true);
+    const email = `${username.trim().toLowerCase()}@kezkamhomes.app`;
 
     // Create user via server-side API (bypasses email confirmation requirement)
     const res = await fetch('/api/auth/signup', {
@@ -97,16 +102,16 @@ export default function SignUpPage() {
 
         <form onSubmit={handleSignUp} className="space-y-4">
           <div>
-            <label className="label">Email address</label>
+            <label className="label">Username</label>
             <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               className="input"
-              placeholder="you@example.com"
+              placeholder="admin"
               required
               autoFocus
-              autoComplete="email"
+              autoComplete="username"
             />
           </div>
 
