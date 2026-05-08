@@ -1,11 +1,12 @@
 import { createServiceClient } from '@/lib/supabase/server';
 import { sendSMS, buildReminderSMS } from '@/lib/africas-talking';
 import { NextResponse } from 'next/server';
-import { format, addMonths, startOfMonth } from 'date-fns';
+import { format, startOfMonth } from 'date-fns';
 
-// This route is called by Vercel Cron on the 28th of every month at 08:00 EAT
-// vercel.json: { "crons": [{ "path": "/api/reminders", "schedule": "0 5 28 * *" }] }
+// This route is called by Vercel Cron on the 5th of every month at 08:00 EAT
+// vercel.json: { "crons": [{ "path": "/api/reminders", "schedule": "0 5 5 * *" }] }
 // Note: Vercel cron runs in UTC — 05:00 UTC = 08:00 EAT
+// Only sends to tenants who have NOT paid for the current month.
 
 type ReminderApartment = {
   rent_amount: number;
@@ -28,9 +29,10 @@ export async function GET(request: Request) {
 
   const supabase = createServiceClient();
 
-  // Remind tenants about NEXT month's bill
-  const nextMonth = startOfMonth(addMonths(new Date(), 1));
-  const monthLabel = format(nextMonth, 'MMMM yyyy');
+  // Current month — only remind tenants who haven't paid yet
+  const currentMonth = startOfMonth(new Date());
+  const monthISO = format(currentMonth, 'yyyy-MM-dd');
+  const monthLabel = format(currentMonth, 'MMMM yyyy');
 
   // Fetch all active tenants with their apartments
   const { data: tenants, error } = await supabase
@@ -42,6 +44,14 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  // Fetch tenant IDs who have already paid this month
+  const { data: payments } = await supabase
+    .from('payments')
+    .select('tenant_id')
+    .eq('payment_month', monthISO);
+
+  const paidTenantIds = new Set((payments ?? []).map((p) => p.tenant_id));
+
   if (!tenants || tenants.length === 0) {
     return NextResponse.json({ success: true, sent: 0, failed: 0, message: 'No active tenants.' });
   }
@@ -51,6 +61,12 @@ export async function GET(request: Request) {
   const results: { tenant: string; status: string }[] = [];
 
   for (const tenant of tenants) {
+    // Skip tenants who have already paid this month
+    if (paidTenantIds.has(tenant.id)) {
+      results.push({ tenant: tenant.full_name, status: 'skipped — already paid' });
+      continue;
+    }
+
     const apt = firstRelation(tenant.apartments) as ReminderApartment | null;
 
     if (!apt) {
@@ -89,7 +105,8 @@ export async function GET(request: Request) {
   return NextResponse.json({
     success: true,
     month: monthLabel,
-    total: tenants.length,
+    total_active: tenants.length,
+    already_paid: paidTenantIds.size,
     sent,
     failed,
     results,
