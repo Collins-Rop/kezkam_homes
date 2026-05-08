@@ -6,6 +6,7 @@ import { ArrowLeft, Phone, Mail, CreditCard, MessageSquare, FileText } from 'luc
 import TenantMoveOutButton from '@/components/tenants/TenantMoveOutButton';
 import GiveNoticeModal from '@/components/tenants/GiveNoticeModal';
 import CancelNoticeButton from '@/components/tenants/CancelNoticeButton';
+import EditTenantModal from '@/components/tenants/EditTenantModal';
 
 export const dynamic = 'force-dynamic';
 
@@ -84,6 +85,18 @@ export default async function TenantDetailPage({ params }: { params: { id: strin
           >
             <FileText size={14} /> Statement
           </Link>
+          <EditTenantModal
+            tenant={{
+              id: tenant.id,
+              full_name: tenant.full_name,
+              phone_number: tenant.phone_number,
+              email: tenant.email,
+              national_id: tenant.national_id,
+              deposit_amount: tenant.deposit_amount,
+              notes: tenant.notes,
+              move_in_date: tenant.move_in_date,
+            }}
+          />
           {tenant.is_active && (
             <TenantMoveOutButton tenantId={tenant.id} tenantName={tenant.full_name} />
           )}
