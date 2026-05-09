@@ -50,6 +50,26 @@ export default async function TenantStatementPage({ params }: { params: { id: st
     (m) => !paidMonths.has(format(m, 'yyyy-MM'))
   );
 
+  // Advance payments: months beyond current
+  const currentMonthStr = format(startOfMonth(now), 'yyyy-MM');
+  const advancePayments = (payments ?? []).filter(
+    (p) => p.payment_month.slice(0, 7) > currentMonthStr
+  );
+
+  // Balance calculations
+  const monthlyBill = apt
+    ? Number(apt.rent_amount) + Number(apt.water_bill) + Number(apt.garbage_bill) + Number(apt.security_bill ?? 0)
+    : 0;
+  const arrearsAmount = outstandingMonths.length * monthlyBill;
+  // Total paid excluding deposit (deposit is a one-time item, not monthly)
+  const totalPaidMonthly = (payments ?? []).reduce(
+    (s, p) => s + p.rent_paid + p.water_paid + p.garbage_paid + p.security_paid,
+    0
+  );
+  const totalExpectedToDate = allMonths.length * monthlyBill;
+  // Net: positive = credit/advance, negative = arrears
+  const netBalance = totalPaidMonthly - totalExpectedToDate;
+
   const activeNotice = notices?.[0] ?? null;
   const generatedDate = format(now, 'dd MMM yyyy HH:mm');
 
@@ -178,10 +198,12 @@ export default async function TenantStatementPage({ params }: { params: { id: st
                     <th>Rent</th>
                     <th>Water</th>
                     <th>Garbage</th>
+                    <th>Security</th>
+                    <th>Deposit</th>
                     <th>Total</th>
                     <th>Method</th>
                     <th>Ref / Code</th>
-                    <th>Date</th>
+                    <th>Date Paid</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -191,6 +213,12 @@ export default async function TenantStatementPage({ params }: { params: { id: st
                       <td style={{ color: 'var(--color-text-muted)' }}>{formatCurrency(p.rent_paid)}</td>
                       <td style={{ color: 'var(--color-text-muted)' }}>{formatCurrency(p.water_paid)}</td>
                       <td style={{ color: 'var(--color-text-muted)' }}>{formatCurrency(p.garbage_paid)}</td>
+                      <td style={{ color: 'var(--color-text-muted)' }}>{formatCurrency(p.security_paid)}</td>
+                      <td style={{ color: (p as { deposit_paid?: number }).deposit_paid ? 'var(--color-brand-light)' : 'var(--color-text-subtle)' }}>
+                        {(p as { deposit_paid?: number }).deposit_paid
+                          ? formatCurrency((p as { deposit_paid?: number }).deposit_paid!)
+                          : '—'}
+                      </td>
                       <td className="font-semibold" style={{ color: 'var(--color-brand-light)' }}>
                         {formatCurrency(p.total_paid)}
                       </td>
@@ -215,7 +243,7 @@ export default async function TenantStatementPage({ params }: { params: { id: st
 
         {/* Summary */}
         <div
-          className="grid grid-cols-3 gap-4 p-4 rounded-xl"
+          className="grid grid-cols-2 gap-4 p-4 rounded-xl sm:grid-cols-4"
           style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)' }}
         >
           <div className="text-center">
@@ -237,16 +265,38 @@ export default async function TenantStatementPage({ params }: { params: { id: st
             >
               {outstandingMonths.length}
             </div>
-            <div className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>Months Outstanding</div>
+            <div className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>Months Arrears</div>
+          </div>
+          <div className="text-center">
+            <div
+              className="text-2xl font-bold"
+              style={{
+                color: netBalance > 0 ? '#15803d' : netBalance < 0 ? '#b91c1c' : 'var(--color-text-muted)',
+                fontFamily: 'var(--font-display)',
+              }}
+            >
+              {netBalance > 0 ? '+' : ''}{formatCurrency(Math.abs(netBalance))}
+            </div>
+            <div className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
+              {netBalance > 0 ? 'Credit / Advance' : netBalance < 0 ? 'Balance Owed' : 'Settled'}
+            </div>
           </div>
         </div>
 
-        {/* Outstanding months */}
+        {/* Arrears breakdown */}
         {outstandingMonths.length > 0 && (
-          <div>
-            <h3 className="font-semibold mb-2 text-sm" style={{ color: '#b91c1c' }}>
-              Outstanding Months ({outstandingMonths.length})
-            </h3>
+          <div
+            className="p-4 rounded-xl space-y-3"
+            style={{ background: 'rgba(220,38,38,0.05)', border: '1px solid rgba(220,38,38,0.2)' }}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-sm" style={{ color: '#b91c1c' }}>
+                Arrears — {outstandingMonths.length} unpaid month{outstandingMonths.length !== 1 ? 's' : ''}
+              </h3>
+              <span className="font-bold text-sm" style={{ color: '#b91c1c' }}>
+                {formatCurrency(arrearsAmount)} owed
+              </span>
+            </div>
             <div className="flex flex-wrap gap-2">
               {outstandingMonths.map((m) => (
                 <span
@@ -259,6 +309,43 @@ export default async function TenantStatementPage({ params }: { params: { id: st
                   }}
                 >
                   {format(m, 'MMM yyyy')}
+                </span>
+              ))}
+            </div>
+            {monthlyBill > 0 && (
+              <p className="text-xs" style={{ color: '#b91c1c' }}>
+                Monthly bill: {formatCurrency(monthlyBill)} × {outstandingMonths.length} months = {formatCurrency(arrearsAmount)}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Advance payments info */}
+        {advancePayments.length > 0 && (
+          <div
+            className="p-4 rounded-xl space-y-2"
+            style={{ background: 'rgba(22,163,74,0.05)', border: '1px solid rgba(22,163,74,0.2)' }}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-sm" style={{ color: '#15803d' }}>
+                Advance Payments — {advancePayments.length} future month{advancePayments.length !== 1 ? 's' : ''} covered
+              </h3>
+              <span className="font-bold text-sm" style={{ color: '#15803d' }}>
+                {formatCurrency(advancePayments.reduce((s, p) => s + p.total_paid, 0))} ahead
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {advancePayments.map((p) => (
+                <span
+                  key={p.payment_month}
+                  className="text-xs px-2.5 py-1 rounded-full"
+                  style={{
+                    background: 'rgba(22,163,74,0.1)',
+                    color: '#15803d',
+                    border: '1px solid rgba(22,163,74,0.2)',
+                  }}
+                >
+                  {format(parseISO(p.payment_month), 'MMM yyyy')}
                 </span>
               ))}
             </div>

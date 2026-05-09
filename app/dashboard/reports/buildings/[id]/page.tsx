@@ -11,6 +11,7 @@ import {
   startOfMonth,
   subMonths,
   differenceInDays,
+  eachMonthOfInterval,
 } from 'date-fns';
 
 export const dynamic = 'force-dynamic';
@@ -44,17 +45,20 @@ export default async function BuildingReportPage({ params }: { params: { id: str
   const allUnits = units ?? [];
   const unitIds = new Set(allUnits.map((u) => u.id));
 
-  // Fetch payments filtered to this building's units (guard against empty set)
-  const { data: buildingPayments } = unitIds.size > 0
+  // Fetch all payments for this building (no date limit — needed for arrears calculation)
+  const { data: allBuildingPayments } = unitIds.size > 0
     ? await supabase
         .from('payments')
         .select('*, tenants(full_name)')
         .in('apartment_id', Array.from(unitIds))
-        .gte('payment_month', sixMonthsAgo)
         .order('payment_month', { ascending: false })
     : { data: [] };
 
-  const paymentsData = buildingPayments ?? [];
+  const allPaymentsData = allBuildingPayments ?? [];
+  // Last 6 months slice for the monthly collection table
+  const paymentsData = allPaymentsData.filter(
+    (p) => p.payment_month >= sixMonthsAgo
+  );
 
   // Building notices scoped to this building's units
   const buildingActiveNotices = (activeNotices ?? []).filter((n) =>
@@ -125,19 +129,52 @@ export default async function BuildingReportPage({ params }: { params: { id: str
     return { type: t, label: UNIT_TYPE_LABELS[t], total: typeUnits.length, occupied: occ, vacant: typeUnits.length - occ, notice };
   }).filter((t) => t.total > 0);
 
-  // Unpaid tenants this month
+  // Paid tenant IDs grouped by tenant for arrears calculation
+  const paidMonthsByTenant = new Map<string, Set<string>>();
+  for (const p of allPaymentsData) {
+    if (!paidMonthsByTenant.has(p.tenant_id)) paidMonthsByTenant.set(p.tenant_id, new Set());
+    paidMonthsByTenant.get(p.tenant_id)!.add(p.payment_month.slice(0, 7));
+  }
+
+  // Unpaid tenants this month + cumulative arrears
   const paidThisMonthTenantIds = new Set(currentMonthPayments.map((p) => p.tenant_id));
+  const currentMonthStr = format(startOfMonth(now), 'yyyy-MM');
+
   const unpaidTenants = allUnits
     .flatMap((u) => {
-      const activeTenants = (u.tenants as { id: string; full_name: string; is_active: boolean }[] ?? []).filter(
+      const monthlyBill = u.rent_amount + u.water_bill + u.garbage_bill + (u.security_bill ?? 0);
+      const activeTenants = (u.tenants as { id: string; full_name: string; is_active: boolean; move_in_date: string }[] ?? []).filter(
         (t) => t.is_active && !paidThisMonthTenantIds.has(t.id)
       );
-      return activeTenants.map((t) => ({
-        ...t,
-        unit: u.name,
-        expected: u.rent_amount + u.water_bill + u.garbage_bill + (u.security_bill ?? 0),
-      }));
-    });
+      return activeTenants.map((t) => {
+        const moveIn = parseISO(t.move_in_date);
+        const months = eachMonthOfInterval({ start: startOfMonth(moveIn), end: startOfMonth(now) });
+        const tenantPaid = paidMonthsByTenant.get(t.id) ?? new Set<string>();
+        const arrearsMonths = months.filter((m) => !tenantPaid.has(format(m, 'yyyy-MM')));
+        const arrearsAmount = arrearsMonths.length * monthlyBill;
+        return {
+          ...t,
+          unit: u.name,
+          monthlyBill,
+          arrearsMonths: arrearsMonths.length,
+          arrearsAmount,
+        };
+      });
+    })
+    .sort((a, b) => b.arrearsAmount - a.arrearsAmount);
+
+  // Total cumulative arrears across all active tenants in this building
+  const totalArrears = allUnits.flatMap((u) => {
+    const monthlyBill = u.rent_amount + u.water_bill + u.garbage_bill + (u.security_bill ?? 0);
+    return (u.tenants as { id: string; is_active: boolean; move_in_date: string }[] ?? [])
+      .filter((t) => t.is_active)
+      .map((t) => {
+        const moveIn = parseISO(t.move_in_date);
+        const months = eachMonthOfInterval({ start: startOfMonth(moveIn), end: startOfMonth(now) });
+        const tenantPaid = paidMonthsByTenant.get(t.id) ?? new Set<string>();
+        return months.filter((m) => !tenantPaid.has(format(m, 'yyyy-MM'))).length * monthlyBill;
+      });
+  }).reduce((s, v) => s + v, 0);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -156,16 +193,17 @@ export default async function BuildingReportPage({ params }: { params: { id: str
       </div>
 
       {/* Overview cards */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         {[
-          { label: 'Total Units', value: totalUnits, color: 'var(--color-brand-light)' },
-          { label: 'Occupied', value: occupied, color: '#15803d' },
-          { label: 'Vacant', value: vacant, color: 'var(--color-text-muted)' },
+          { label: 'Total Units', value: String(totalUnits), color: 'var(--color-brand-light)' },
+          { label: 'Occupied', value: String(occupied), color: '#15803d' },
+          { label: 'Vacant', value: String(vacant), color: 'var(--color-text-muted)' },
           { label: 'Collection This Month', value: `${collectionRate}%`, color: collectionRate >= 80 ? '#15803d' : '#b91c1c' },
+          { label: 'Total Arrears', value: formatCurrency(totalArrears), color: totalArrears > 0 ? '#b91c1c' : '#15803d' },
         ].map((s) => (
           <div key={s.label} className="card text-center space-y-1">
             <div
-              className="text-3xl font-bold"
+              className="text-2xl font-bold"
               style={{ fontFamily: 'var(--font-display)', color: s.color }}
             >
               {s.value}
@@ -289,7 +327,9 @@ export default async function BuildingReportPage({ params }: { params: { id: str
                 <tr>
                   <th>Tenant</th>
                   <th>Unit</th>
-                  <th>Outstanding</th>
+                  <th>This Month</th>
+                  <th>Arrears Months</th>
+                  <th>Total Owed</th>
                 </tr>
               </thead>
               <tbody>
@@ -297,10 +337,28 @@ export default async function BuildingReportPage({ params }: { params: { id: str
                   <tr key={t.id}>
                     <td className="font-medium">{t.full_name}</td>
                     <td style={{ color: 'var(--color-text-muted)' }}>{t.unit}</td>
-                    <td style={{ color: '#b91c1c' }}>{formatCurrency(t.expected)}</td>
+                    <td style={{ color: '#b91c1c' }}>{formatCurrency(t.monthlyBill)}</td>
+                    <td>
+                      {t.arrearsMonths > 1 ? (
+                        <span className="badge-red">{t.arrearsMonths} months</span>
+                      ) : (
+                        <span style={{ color: 'var(--color-text-muted)' }}>1 month</span>
+                      )}
+                    </td>
+                    <td className="font-semibold" style={{ color: '#b91c1c' }}>
+                      {formatCurrency(t.arrearsAmount)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr style={{ borderTop: '2px solid var(--color-border)' }}>
+                  <td colSpan={4} className="font-semibold text-right pr-4">Total Arrears:</td>
+                  <td className="font-bold" style={{ color: '#b91c1c' }}>
+                    {formatCurrency(unpaidTenants.reduce((s, t) => s + t.arrearsAmount, 0))}
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           )}
         </div>

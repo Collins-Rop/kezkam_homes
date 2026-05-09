@@ -7,6 +7,7 @@ import TenantMoveOutButton from '@/components/tenants/TenantMoveOutButton';
 import GiveNoticeModal from '@/components/tenants/GiveNoticeModal';
 import CancelNoticeButton from '@/components/tenants/CancelNoticeButton';
 import EditTenantModal from '@/components/tenants/EditTenantModal';
+import { format, parseISO, eachMonthOfInterval, startOfMonth } from 'date-fns';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,6 +49,29 @@ export default async function TenantDetailPage({ params }: { params: { id: strin
 
   const unitName = apt ? String(apt.name) : 'Unknown Unit';
   const depositAlreadyPaid = tenant.deposit_amount ? Number(tenant.deposit_amount) : 0;
+
+  // Balance / arrears calculation
+  const now = new Date();
+  const moveInDate = parseISO(tenant.move_in_date);
+  const allMonths = eachMonthOfInterval({
+    start: startOfMonth(moveInDate),
+    end: startOfMonth(now),
+  });
+  const paidMonthsSet = new Set((payments ?? []).map((p) => p.payment_month.slice(0, 7)));
+  const outstandingMonths = allMonths.filter((m) => !paidMonthsSet.has(format(m, 'yyyy-MM')));
+  const monthlyBill = apt
+    ? Number(apt.rent_amount) + Number(apt.water_bill) + Number(apt.garbage_bill) + Number(apt.security_bill ?? 0)
+    : 0;
+  const arrearsAmount = outstandingMonths.length * monthlyBill;
+  const totalPaidMonthly = (payments ?? []).reduce(
+    (s, p) => s + p.rent_paid + p.water_paid + p.garbage_paid + p.security_paid, 0
+  );
+  const totalExpectedToDate = allMonths.length * monthlyBill;
+  const netBalance = totalPaidMonthly - totalExpectedToDate;
+  const currentMonthStr = format(startOfMonth(now), 'yyyy-MM');
+  const advanceMonths = (payments ?? []).filter(
+    (p) => p.payment_month.slice(0, 7) > currentMonthStr
+  ).length;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -202,6 +226,84 @@ export default async function TenantDetailPage({ params }: { params: { id: strin
 
         {/* Sidebar info */}
         <div className="space-y-4">
+
+          {/* Balance / Arrears card */}
+          <div
+            className="card space-y-3"
+            style={{
+              border: outstandingMonths.length > 0
+                ? '1px solid rgba(220,38,38,0.35)'
+                : netBalance > 0
+                ? '1px solid rgba(22,163,74,0.35)'
+                : '1px solid var(--color-border)',
+              background: outstandingMonths.length > 0
+                ? 'rgba(220,38,38,0.04)'
+                : netBalance > 0
+                ? 'rgba(22,163,74,0.04)'
+                : 'var(--color-surface)',
+            }}
+          >
+            <h2 className="font-semibold pb-3" style={{ fontFamily: 'var(--font-display)', borderBottom: '1px solid var(--color-border)' }}>
+              Account Balance
+            </h2>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span style={{ color: 'var(--color-text-muted)' }}>Months since move-in</span>
+                <span className="font-medium">{allMonths.length}</span>
+              </div>
+              <div className="flex justify-between">
+                <span style={{ color: 'var(--color-text-muted)' }}>Months paid</span>
+                <span className="font-medium" style={{ color: '#15803d' }}>{payments?.length ?? 0}</span>
+              </div>
+              {outstandingMonths.length > 0 && (
+                <div className="flex justify-between">
+                  <span style={{ color: '#b91c1c' }}>Months in arrears</span>
+                  <span className="font-semibold" style={{ color: '#b91c1c' }}>{outstandingMonths.length}</span>
+                </div>
+              )}
+              {advanceMonths > 0 && (
+                <div className="flex justify-between">
+                  <span style={{ color: '#15803d' }}>Advance months</span>
+                  <span className="font-semibold" style={{ color: '#15803d' }}>{advanceMonths}</span>
+                </div>
+              )}
+              {monthlyBill > 0 && (
+                <div className="flex justify-between" style={{ borderTop: '1px solid var(--color-border)', paddingTop: '0.5rem' }}>
+                  <span style={{ color: 'var(--color-text-muted)' }}>Monthly bill</span>
+                  <span>{formatCurrency(monthlyBill)}</span>
+                </div>
+              )}
+              <div
+                className="flex justify-between font-bold pt-1"
+                style={{
+                  borderTop: '1px solid var(--color-border)',
+                  color: netBalance > 0 ? '#15803d' : netBalance < 0 ? '#b91c1c' : 'var(--color-text-muted)',
+                }}
+              >
+                <span>{netBalance > 0 ? 'Credit' : netBalance < 0 ? 'Arrears Owed' : 'Settled'}</span>
+                <span>
+                  {netBalance !== 0 ? `${netBalance > 0 ? '+' : '-'}${formatCurrency(Math.abs(netBalance))}` : formatCurrency(0)}
+                </span>
+              </div>
+            </div>
+            {outstandingMonths.length > 0 && (
+              <div className="pt-1">
+                <p className="text-xs font-medium mb-1.5" style={{ color: '#b91c1c' }}>Unpaid months:</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {outstandingMonths.map((m) => (
+                    <span
+                      key={format(m, 'yyyy-MM')}
+                      className="text-xs px-2 py-0.5 rounded-full"
+                      style={{ background: 'rgba(220,38,38,0.1)', color: '#b91c1c', border: '1px solid rgba(220,38,38,0.2)' }}
+                    >
+                      {format(m, 'MMM yyyy')}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Notice to Vacate Section */}
           <div className="card space-y-4">
             <h2
