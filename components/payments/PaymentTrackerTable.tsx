@@ -123,11 +123,11 @@ export default function PaymentTrackerTable({
       bg.paidGroups.sort(sortByFloorThenName);
     }
 
-    // Sort buildings: those with unpaid tenants first, then alphabetically
+    // Sort buildings: fully paid first, then by paid count descending, then alphabetically
     return result.sort((a: BuildingGroup, b: BuildingGroup) => {
-      const aUnpaid = a.totalCount - a.paidCount;
-      const bUnpaid = b.totalCount - b.paidCount;
-      if (aUnpaid !== bUnpaid) return bUnpaid - aUnpaid;
+      const aPct = a.totalCount > 0 ? a.paidCount / a.totalCount : 0;
+      const bPct = b.totalCount > 0 ? b.paidCount / b.totalCount : 0;
+      if (bPct !== aPct) return bPct - aPct;
       return a.buildingName.localeCompare(b.buildingName);
     });
   }, [tenants, paymentMap]);
@@ -311,39 +311,6 @@ export default function PaymentTrackerTable({
               {!isCollapsed && (
                 <div style={{ background: 'var(--color-surface)' }}>
 
-                  {/* ── Unpaid section ── */}
-                  {bg.unpaidGroups.length > 0 && (
-                    <div>
-                      <div
-                        className="px-5 py-2.5 flex items-center gap-2"
-                        style={{
-                          background: 'rgba(220,38,38,0.04)',
-                          borderBottom: '1px solid rgba(220,38,38,0.12)',
-                        }}
-                      >
-                        <XCircle size={14} style={{ color: '#dc2626' }} />
-                        <span
-                          className="text-xs font-semibold uppercase tracking-wide"
-                          style={{ color: '#b91c1c' }}
-                        >
-                          Unpaid — {bg.unpaidGroups.reduce((s, g) => s + g.tenants.filter((t) => !paymentMap.has(t.id)).length, 0)} tenants
-                        </span>
-                      </div>
-                      <div className="divide-y" style={{ borderColor: 'var(--color-border)' }}>
-                        {bg.unpaidGroups.map(({ apt, tenants: aptTenants }) => (
-                          <AptBlock
-                            key={apt.id}
-                            apt={apt}
-                            tenants={aptTenants}
-                            paymentMap={paymentMap}
-                            onRecord={(id) => setRecordingFor(id)}
-                            showSearch={!!search.trim()}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
                   {/* ── Paid section ── */}
                   {bg.paidGroups.length > 0 && (
                     <div>
@@ -352,7 +319,6 @@ export default function PaymentTrackerTable({
                         className="w-full px-5 py-2.5 flex items-center gap-2 text-left"
                         style={{
                           background: 'rgba(22,163,74,0.04)',
-                          borderTop: bg.unpaidGroups.length > 0 ? '1px solid var(--color-border)' : 'none',
                           borderBottom: isPaidCollapsed ? 'none' : '1px solid rgba(22,163,74,0.12)',
                         }}
                         onClick={() => togglePaidSection(bg.buildingId)}
@@ -383,6 +349,40 @@ export default function PaymentTrackerTable({
                           ))}
                         </div>
                       )}
+                    </div>
+                  )}
+
+                  {/* ── Unpaid section ── */}
+                  {bg.unpaidGroups.length > 0 && (
+                    <div>
+                      <div
+                        className="px-5 py-2.5 flex items-center gap-2"
+                        style={{
+                          background: 'rgba(220,38,38,0.04)',
+                          borderTop: bg.paidGroups.length > 0 ? '1px solid var(--color-border)' : 'none',
+                          borderBottom: '1px solid rgba(220,38,38,0.12)',
+                        }}
+                      >
+                        <XCircle size={14} style={{ color: '#dc2626' }} />
+                        <span
+                          className="text-xs font-semibold uppercase tracking-wide"
+                          style={{ color: '#b91c1c' }}
+                        >
+                          Unpaid — {bg.unpaidGroups.reduce((s, g) => s + g.tenants.filter((t) => !paymentMap.has(t.id)).length, 0)} tenants
+                        </span>
+                      </div>
+                      <div className="divide-y" style={{ borderColor: 'var(--color-border)' }}>
+                        {bg.unpaidGroups.map(({ apt, tenants: aptTenants }) => (
+                          <AptBlock
+                            key={apt.id}
+                            apt={apt}
+                            tenants={aptTenants}
+                            paymentMap={paymentMap}
+                            onRecord={(id) => setRecordingFor(id)}
+                            showSearch={!!search.trim()}
+                          />
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
