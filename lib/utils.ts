@@ -36,12 +36,39 @@ export function monthOptions(count = 12): { label: string; value: string }[] {
 }
 
 export function normalizePhone(raw: string): string {
+  const phones = normalizePhones(raw);
+  if (phones.length > 1) return phones.join(', ');
+  if (phones.length === 1) return phones[0];
+
   const digits = raw.trim().replace(/\D/g, '');
   if (digits.startsWith('0') && digits.length === 10) return `+254${digits.slice(1)}`;
   if (digits.startsWith('254') && digits.length === 12) return `+${digits}`;
   if (digits.startsWith('7') && digits.length === 9) return `+254${digits}`;
   if (digits.startsWith('7') && digits.length === 8) return `+2547${digits}`; // best-effort for 8-digit
   return raw.trim();
+}
+
+function normalizeSinglePhone(raw: string): string {
+  const digits = raw.trim().replace(/\D/g, '');
+  if (digits.startsWith('0') && digits.length === 10) return `+254${digits.slice(1)}`;
+  if (digits.startsWith('254') && digits.length === 12) return `+${digits}`;
+  if (digits.startsWith('7') && digits.length === 9) return `+254${digits}`;
+  if (digits.startsWith('7') && digits.length === 8) return `+2547${digits}`;
+  return raw.trim();
+}
+
+export function normalizePhones(raw: string): string[] {
+  const parts = raw
+    .trim()
+    .split(/[\s,\/;]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const normalized = (parts.length ? parts : [raw])
+    .map(normalizeSinglePhone)
+    .filter((phone) => phone.length > 0);
+
+  return Array.from(new Set(normalized));
 }
 
 /** Returns true if a +254XXXXXXXXX number belongs to Safaricom (M-Pesa). */
@@ -63,9 +90,6 @@ export function isSafaricom(normalized: string): boolean {
  * pick the Safaricom number first (for M-Pesa). Falls back to the first valid number.
  */
 export function selectPhone(raw: string): string {
-  const parts = raw.trim().split(/[\s,\/;]+/).filter(Boolean);
-  if (parts.length <= 1) return normalizePhone(raw);
-
-  const normalized = parts.map(normalizePhone);
+  const normalized = normalizePhones(raw);
   return normalized.find(isSafaricom) ?? normalized[0] ?? normalizePhone(raw);
 }

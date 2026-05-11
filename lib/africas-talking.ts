@@ -1,6 +1,6 @@
 // Africa's Talking SMS utility
 // Docs: https://developers.africastalking.com/docs/sms/sending
-import { selectPhone } from '@/lib/utils';
+import { normalizePhones } from '@/lib/utils';
 
 // Do NOT cache the instance — always create fresh so env var updates take effect immediately
 function getATInstance() {
@@ -32,12 +32,16 @@ function getSenderId(): string | undefined {
 }
 
 export async function sendSMS(to: string, message: string): Promise<SMSResult> {
-  const normalizedTo = selectPhone(to);
+  const normalizedTo = normalizePhones(to);
+
+  if (normalizedTo.length === 0) {
+    return { success: false, error: 'No valid phone number provided' };
+  }
 
   // In development / missing credentials, log and skip
   if (!process.env.AT_API_KEY || !process.env.AT_USERNAME) {
     console.warn('[SMS] Africa\'s Talking credentials not set — skipping send');
-    console.log(`[SMS] Would send to ${normalizedTo}: ${message}`);
+    console.log(`[SMS] Would send to ${normalizedTo.join(', ')}: ${message}`);
     return { success: true, messageId: 'dev-mock-id' };
   }
 
@@ -46,7 +50,7 @@ export async function sendSMS(to: string, message: string): Promise<SMSResult> {
     const sms = at.SMS;
 
     const options: Record<string, unknown> = {
-      to: [normalizedTo],
+      to: normalizedTo,
       message,
     };
 
@@ -57,15 +61,39 @@ export async function sendSMS(to: string, message: string): Promise<SMSResult> {
 
     const result = await sms.send(options);
     const recipients = result?.SMSMessageData?.Recipients ?? [];
-    const first = recipients[0];
+    const successful = recipients.filter(
+      (recipient: { status?: string }) => recipient.status === 'Success',
+    );
+    const failed = recipients.filter(
+      (recipient: { status?: string }) => recipient.status !== 'Success',
+    );
 
-    if (first?.status === 'Success') {
-      return { success: true, messageId: first.messageId };
+    if (successful.length > 0) {
+      return {
+        success: true,
+        messageId: successful
+          .map((recipient: { messageId?: string }) => recipient.messageId)
+          .filter(Boolean)
+          .join(', '),
+        error: failed.length
+          ? failed
+              .map((recipient: { number?: string; status?: string }) =>
+                `${recipient.number ?? 'unknown'}: ${recipient.status ?? 'Unknown error'}`,
+              )
+              .join('; ')
+          : undefined,
+      };
     }
 
     return {
       success: false,
-      error: first?.status ?? result?.SMSMessageData?.Message ?? 'Unknown error',
+      error: failed.length
+        ? failed
+            .map((recipient: { number?: string; status?: string }) =>
+              `${recipient.number ?? 'unknown'}: ${recipient.status ?? 'Unknown error'}`,
+            )
+            .join('; ')
+        : result?.SMSMessageData?.Message ?? 'Unknown error',
     };
   } catch (err) {
     const error = err instanceof Error ? err.message : 'SMS send failed';
