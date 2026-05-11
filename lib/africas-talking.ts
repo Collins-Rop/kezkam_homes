@@ -18,6 +18,19 @@ export interface SMSResult {
   error?: string;
 }
 
+function getSenderId(): string | undefined {
+  const senderId = process.env.AT_SENDER_ID?.trim();
+  if (!senderId) return undefined;
+
+  // Africa's Talking sender IDs are approved exact strings; spaces are rejected.
+  if (!/^[A-Za-z0-9]{1,11}$/.test(senderId)) {
+    console.warn(`[SMS] Ignoring invalid AT_SENDER_ID "${senderId}"`);
+    return undefined;
+  }
+
+  return senderId;
+}
+
 export async function sendSMS(to: string, message: string): Promise<SMSResult> {
   const normalizedTo = selectPhone(to);
 
@@ -37,8 +50,9 @@ export async function sendSMS(to: string, message: string): Promise<SMSResult> {
       message,
     };
 
-    if (process.env.AT_SENDER_ID) {
-      options.from = process.env.AT_SENDER_ID;
+    const senderId = getSenderId();
+    if (senderId) {
+      options.from = senderId;
     }
 
     const result = await sms.send(options);
@@ -49,7 +63,10 @@ export async function sendSMS(to: string, message: string): Promise<SMSResult> {
       return { success: true, messageId: first.messageId };
     }
 
-    return { success: false, error: first?.status ?? 'Unknown error' };
+    return {
+      success: false,
+      error: first?.status ?? result?.SMSMessageData?.Message ?? 'Unknown error',
+    };
   } catch (err) {
     const error = err instanceof Error ? err.message : 'SMS send failed';
     console.error('[SMS] Error:', error);

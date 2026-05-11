@@ -9,6 +9,7 @@ import {
   Search,
   CreditCard,
   Building2,
+  Pencil,
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import RecordPaymentModal from './RecordPaymentModal';
@@ -16,6 +17,12 @@ import type { Tenant, Apartment, Payment } from '@/lib/supabase/types';
 import { FLOOR_OPTIONS } from '@/lib/supabase/types';
 
 const FLOOR_ORDER = FLOOR_OPTIONS.map((f) => f.value);
+
+function isTenantSettled(tenantId: string, paymentMap: Map<string, Payment>, balances: Record<string, TenantBalance>) {
+  const balance = balances[tenantId];
+  if (balance) return balance.endingBalance <= 0;
+  return paymentMap.has(tenantId);
+}
 
 type AptWithBuilding = Apartment & { buildings?: { id: string; name: string } | null };
 type TenantWithApt = Tenant & { apartments: AptWithBuilding | null };
@@ -26,6 +33,14 @@ interface Props {
   selectedMonth: string;
   allTenants: (Tenant & { apartments: unknown })[];
   apartments: Pick<Apartment, 'id' | 'name'>[];
+  balances: Record<string, TenantBalance>;
+}
+
+export interface TenantBalance {
+  carriedBalance: number;
+  currentDue: number;
+  currentPaid: number;
+  endingBalance: number;
 }
 
 interface AptGroup {
@@ -49,11 +64,13 @@ export default function PaymentTrackerTable({
   selectedMonth,
   allTenants,
   apartments,
+  balances,
 }: Props) {
   const [search, setSearch] = useState('');
   const [collapsedBuildings, setCollapsedBuildings] = useState<Set<string>>(new Set());
   const [collapsedPaidSections, setCollapsedPaidSections] = useState<Set<string>>(new Set());
   const [recordingFor, setRecordingFor] = useState<string | null>(null);
+  const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
 
   const paymentMap = useMemo(
     () => new Map(payments.map((p) => [p.tenant_id, p])),
@@ -91,7 +108,9 @@ export default function PaymentTrackerTable({
       }
 
       const bg = bldMap.get(buildingId)!;
-      const allPaid = aptTenants.every((t: TenantWithApt) => paymentMap.has(t.id));
+      const allPaid = aptTenants.every(
+        (t: TenantWithApt) => isTenantSettled(t.id, paymentMap, balances),
+      );
 
       if (allPaid) {
         bg.paidGroups.push({ apt, tenants: aptTenants });
@@ -101,9 +120,9 @@ export default function PaymentTrackerTable({
 
       for (const t of aptTenants) {
         bg.totalCount++;
-        if (paymentMap.has(t.id)) {
+        if (isTenantSettled(t.id, paymentMap, balances)) {
           bg.paidCount++;
-          bg.revenue += paymentMap.get(t.id)!.total_paid ?? 0;
+          bg.revenue += paymentMap.get(t.id)?.total_paid ?? 0;
         }
       }
     }
@@ -130,12 +149,12 @@ export default function PaymentTrackerTable({
       if (bPct !== aPct) return bPct - aPct;
       return a.buildingName.localeCompare(b.buildingName);
     });
-  }, [tenants, paymentMap]);
+  }, [tenants, paymentMap, balances]);
 
   // Overall stats
   const totalPaid = useMemo(
-    () => tenants.filter((t) => paymentMap.has(t.id)).length,
-    [tenants, paymentMap],
+    () => tenants.filter((t) => isTenantSettled(t.id, paymentMap, balances)).length,
+    [tenants, paymentMap, balances],
   );
   const totalRevenue = useMemo(
     () => payments.reduce((s, p) => s + (p.total_paid ?? 0), 0),
@@ -343,7 +362,9 @@ export default function PaymentTrackerTable({
                               apt={apt}
                               tenants={aptTenants}
                               paymentMap={paymentMap}
+                              balances={balances}
                               onRecord={(id) => setRecordingFor(id)}
+                              onEdit={(payment) => setEditingPayment(payment)}
                               showSearch={!!search.trim()}
                             />
                           ))}
@@ -368,7 +389,7 @@ export default function PaymentTrackerTable({
                           className="text-xs font-semibold uppercase tracking-wide"
                           style={{ color: '#b91c1c' }}
                         >
-                          Unpaid — {bg.unpaidGroups.reduce((s, g) => s + g.tenants.filter((t) => !paymentMap.has(t.id)).length, 0)} tenants
+                          Unpaid — {bg.unpaidGroups.reduce((s, g) => s + g.tenants.filter((t) => !isTenantSettled(t.id, paymentMap, balances)).length, 0)} tenants
                         </span>
                       </div>
                       <div className="divide-y" style={{ borderColor: 'var(--color-border)' }}>
@@ -378,7 +399,9 @@ export default function PaymentTrackerTable({
                             apt={apt}
                             tenants={aptTenants}
                             paymentMap={paymentMap}
+                            balances={balances}
                             onRecord={(id) => setRecordingFor(id)}
+                            onEdit={(payment) => setEditingPayment(payment)}
                             showSearch={!!search.trim()}
                           />
                         ))}
@@ -439,6 +462,17 @@ export default function PaymentTrackerTable({
           onClose={() => setRecordingFor(null)}
         />
       )}
+
+      {editingPayment && (
+        <RecordPaymentModal
+          tenants={allTenants}
+          apartments={apartments}
+          selectedMonth={selectedMonth}
+          existingPayment={editingPayment}
+          isOpen={true}
+          onClose={() => setEditingPayment(null)}
+        />
+      )}
     </div>
   );
 }
@@ -448,17 +482,21 @@ function AptBlock({
   apt,
   tenants,
   paymentMap,
+  balances,
   onRecord,
+  onEdit,
   showSearch,
 }: {
   apt: AptWithBuilding;
   tenants: TenantWithApt[];
   paymentMap: Map<string, Payment>;
+  balances: Record<string, TenantBalance>;
   onRecord: (id: string) => void;
+  onEdit: (payment: Payment) => void;
   showSearch: boolean;
 }) {
   const [open, setOpen] = useState(showSearch);
-  const paidCount = tenants.filter((t) => paymentMap.has(t.id)).length;
+  const paidCount = tenants.filter((t) => isTenantSettled(t.id, paymentMap, balances)).length;
   const aptCollected = tenants.reduce((s, t) => s + (paymentMap.get(t.id)?.total_paid ?? 0), 0);
   const allPaid = paidCount === tenants.length;
   const badgeColor = allPaid ? '#15803d' : '#b91c1c';
@@ -504,6 +542,9 @@ function AptBlock({
           {tenants.map((tenant) => {
             const payment = paymentMap.get(tenant.id);
             const expected = apt.rent_amount + apt.water_bill + apt.garbage_bill + (apt.security_bill ?? 0);
+            const balance = balances[tenant.id];
+            const isCoveredByCredit = !payment && !!balance && balance.endingBalance <= 0;
+            const isSettled = isTenantSettled(tenant.id, paymentMap, balances);
 
             return (
               <div
@@ -511,10 +552,10 @@ function AptBlock({
                 className="flex flex-wrap items-center gap-3 px-7 py-3"
                 style={{
                   borderTop: '1px solid var(--color-border)',
-                  background: payment ? 'rgba(22,163,74,0.03)' : 'rgba(220,38,38,0.02)',
+                  background: isSettled ? 'rgba(22,163,74,0.03)' : 'rgba(220,38,38,0.02)',
                 }}
               >
-                {payment
+                {isSettled
                   ? <CheckCircle size={16} style={{ color: '#16a34a', flexShrink: 0 }} />
                   : <XCircle size={16} style={{ color: '#dc2626', flexShrink: 0 }} />
                 }
@@ -525,6 +566,16 @@ function AptBlock({
                   <p className="text-xs truncate" style={{ color: 'var(--color-text-subtle)' }}>
                     {tenant.phone_number}
                   </p>
+                  {balance && balance.carriedBalance !== 0 && (
+                    <p
+                      className="text-xs mt-0.5"
+                      style={{ color: balance.carriedBalance > 0 ? '#b91c1c' : '#15803d' }}
+                    >
+                      {balance.carriedBalance > 0
+                        ? `Previous arrears ${formatCurrency(balance.carriedBalance)}`
+                        : `Previous overpayment ${formatCurrency(Math.abs(balance.carriedBalance))}`}
+                    </p>
+                  )}
                 </div>
                 <div className="text-right hidden sm:block">
                   {payment ? (
@@ -535,19 +586,51 @@ function AptBlock({
                       <p className="text-xs" style={{ color: 'var(--color-text-subtle)' }}>
                         {payment.payment_method}{payment.reference_number ? ` · ${payment.reference_number}` : ''}
                       </p>
+                      {balance && balance.endingBalance !== 0 && (
+                        <p
+                          className="text-xs font-medium"
+                          style={{ color: balance.endingBalance > 0 ? '#b91c1c' : '#15803d' }}
+                        >
+                          {balance.endingBalance > 0
+                            ? `Still due ${formatCurrency(balance.endingBalance)}`
+                            : `Credit ${formatCurrency(Math.abs(balance.endingBalance))}`}
+                        </p>
+                      )}
                     </>
                   ) : (
-                    <p className="text-xs" style={{ color: 'var(--color-text-subtle)' }}>
-                      Expected {formatCurrency(expected)}
-                    </p>
+                    <>
+                      <p className="text-xs" style={{ color: 'var(--color-text-subtle)' }}>
+                        Expected {formatCurrency(expected)}
+                      </p>
+                      {balance && balance.currentDue !== expected && (
+                        <p
+                          className="text-xs font-medium"
+                          style={{ color: balance.currentDue > 0 ? '#b91c1c' : '#15803d' }}
+                        >
+                          {balance.currentDue > 0
+                            ? `Due ${formatCurrency(balance.currentDue)}`
+                            : `Credit ${formatCurrency(Math.abs(balance.currentDue))}`}
+                        </p>
+                      )}
+                    </>
                   )}
                 </div>
                 {payment ? (
+                  <button
+                    type="button"
+                    onClick={() => onEdit(payment)}
+                    className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+                    style={{ background: 'rgba(22,163,74,0.1)', color: '#15803d', border: '1px solid rgba(22,163,74,0.2)' }}
+                  >
+                    <Pencil size={12} />
+                    Edit
+                  </button>
+                ) : isCoveredByCredit ? (
                   <span
                     className="flex-shrink-0 text-xs px-2 py-1 rounded-full"
                     style={{ background: 'rgba(22,163,74,0.1)', color: '#15803d', border: '1px solid rgba(22,163,74,0.2)' }}
                   >
-                    {payment.sms_sent ? '✓ SMS sent' : 'Paid'}
+                    Covered by credit
                   </span>
                 ) : (
                   <button

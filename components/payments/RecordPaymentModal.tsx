@@ -5,13 +5,14 @@ import { useRouter } from 'next/navigation';
 import { Plus, X, CreditCard, MessageCircle, Zap, ChevronDown, ChevronUp } from 'lucide-react';
 import { monthOptions, formatCurrency } from '@/lib/utils';
 import { format, addMonths, parseISO } from 'date-fns';
-import type { Tenant, Apartment } from '@/lib/supabase/types';
+import type { Tenant, Apartment, Payment } from '@/lib/supabase/types';
 
 interface Props {
   tenants: (Tenant & { apartments: unknown })[];
   apartments: Pick<Apartment, 'id' | 'name'>[];
   selectedMonth: string;
   prefilledTenantId?: string;
+  existingPayment?: Payment;
   isOpen?: boolean;
   onClose?: () => void;
 }
@@ -103,6 +104,7 @@ export default function RecordPaymentModal({
   tenants,
   selectedMonth,
   prefilledTenantId,
+  existingPayment,
   isOpen,
   onClose,
 }: Props) {
@@ -121,15 +123,37 @@ export default function RecordPaymentModal({
   const open = controlled ? isOpen : internalOpen;
 
   useEffect(() => {
+    if (controlled && isOpen && existingPayment) {
+      setForm({
+        tenant_id: existingPayment.tenant_id,
+        payment_month: existingPayment.payment_month,
+        months_count: 1,
+        rent_paid: String(existingPayment.rent_paid ?? ''),
+        water_paid: String(existingPayment.water_paid ?? ''),
+        garbage_paid: String(existingPayment.garbage_paid ?? ''),
+        security_paid: String(existingPayment.security_paid ?? ''),
+        deposit_paid: String(existingPayment.deposit_paid ?? ''),
+        payment_method: existingPayment.payment_method ?? 'M-Pesa',
+        reference_number: existingPayment.reference_number ?? '',
+        payment_date: existingPayment.payment_date
+          ? format(parseISO(existingPayment.payment_date), 'yyyy-MM-dd')
+          : format(new Date(), 'yyyy-MM-dd'),
+        notes: existingPayment.notes ?? '',
+        mpesa_message: existingPayment.mpesa_message ?? '',
+      });
+      return;
+    }
+
     if (controlled && isOpen && prefilledTenantId) {
       prefillFromTenant(prefilledTenantId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, prefilledTenantId]);
+  }, [isOpen, prefilledTenantId, existingPayment?.id]);
 
   const selectedTenant = tenants.find((t) => t.id === form.tenant_id);
   const apt = selectedTenant?.apartments as Record<string, number> | null;
-  const monthsCount = Math.max(1, Math.min(12, Number(form.months_count) || 1));
+  const isEditing = !!existingPayment;
+  const monthsCount = isEditing ? 1 : Math.max(1, Math.min(12, Number(form.months_count) || 1));
 
   // Generate the list of months this payment will cover
   const coveredMonths = Array.from({ length: monthsCount }, (_, i) => {
@@ -247,6 +271,7 @@ export default function RecordPaymentModal({
           ...basePayload,
           payment_month: coveredMonths[i]!.value,
           deposit_paid: i === 0 ? (parseFloat(form.deposit_paid) || 0) : 0,
+          send_sms: !isEditing,
         }),
       });
       const data = await res.json();
@@ -261,7 +286,11 @@ export default function RecordPaymentModal({
       ? `${coveredMonths[0]!.label} – ${coveredMonths[monthsCount - 1]!.label}`
       : coveredMonths[0]!.label;
 
-    setSuccess(`Payment recorded for ${monthLabel}! SMS confirmation sent to ${tenant.full_name}.`);
+    setSuccess(
+      isEditing
+        ? `Payment updated for ${monthLabel}.`
+        : `Payment recorded for ${monthLabel}! SMS confirmation sent to ${tenant.full_name}.`,
+    );
     setLoading(false);
     router.refresh();
     setTimeout(closeModal, 2000);
@@ -297,7 +326,7 @@ export default function RecordPaymentModal({
               <div className="flex items-center gap-2">
                 <CreditCard size={18} style={{ color: 'var(--color-brand)' }} />
                 <h2 className="font-semibold text-lg" style={{ fontFamily: 'var(--font-display)' }}>
-                  Record Payment
+                  {isEditing ? 'Edit Payment' : 'Record Payment'}
                 </h2>
               </div>
               <button onClick={closeModal} className="btn-secondary !p-1.5">
@@ -321,6 +350,7 @@ export default function RecordPaymentModal({
                     onChange={handleChange}
                     className="input"
                     required
+                    disabled={isEditing}
                   >
                     <option value="">Select tenant…</option>
                     {tenants.map((t) => (
@@ -364,6 +394,7 @@ export default function RecordPaymentModal({
                       value={form.payment_month}
                       onChange={handleChange}
                       className="input"
+                      disabled={isEditing}
                     >
                       {months.map((m) => (
                         <option key={m.value} value={m.value}>{m.label}</option>
@@ -380,6 +411,7 @@ export default function RecordPaymentModal({
                       max="12"
                       value={form.months_count}
                       onChange={handleChange}
+                      disabled={isEditing}
                     />
                   </div>
                 </div>
@@ -576,7 +608,7 @@ export default function RecordPaymentModal({
                     Cancel
                   </button>
                   <button type="submit" disabled={loading} className="btn-primary flex-1 justify-center">
-                    {loading ? 'Saving…' : monthsCount > 1 ? `Record ${monthsCount} Months` : 'Record & Send SMS'}
+                    {loading ? 'Saving…' : isEditing ? 'Update Payment' : monthsCount > 1 ? `Record ${monthsCount} Months` : 'Record & Send SMS'}
                   </button>
                 </div>
               </form>

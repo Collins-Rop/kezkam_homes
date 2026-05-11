@@ -32,12 +32,31 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: aptErr.message }, { status: 500 });
     }
 
-    const aptMap = new Map(
-      (apartments ?? []).map((a) => [a.name.toLowerCase().trim(), a.id]),
+    const aptMap = new Map((apartments ?? []).map((a) => [a.name.toLowerCase().trim(), a.id]));
+
+    const apartmentIds = (apartments ?? []).map((a) => a.id);
+    const { data: existingTenants, error: tenantsErr } = apartmentIds.length
+      ? await supabase
+          .from('tenants')
+          .select('id, apartment_id, full_name, phone_number')
+          .in('apartment_id', apartmentIds)
+          .eq('is_active', true)
+      : { data: [], error: null };
+
+    if (tenantsErr) {
+      return NextResponse.json({ error: tenantsErr.message }, { status: 500 });
+    }
+
+    const existingKeys = new Set(
+      (existingTenants ?? []).map((tenant) =>
+        `${tenant.apartment_id}:${normalizePhone(tenant.phone_number).toLowerCase()}`,
+      ),
     );
 
     let created = 0;
+    let skipped = 0;
     const errors: string[] = [];
+    const importKeys = new Set<string>();
 
     for (const row of tenants) {
       const unitNameKey = (row.unit_name ?? '').toLowerCase().trim();
@@ -68,12 +87,23 @@ export async function POST(request: Request) {
         continue;
       }
 
+      const normalizedPhone = normalizePhone(row.phone_number.trim());
+      const tenantKey = `${apartmentId}:${normalizedPhone.toLowerCase()}`;
+
+      if (existingKeys.has(tenantKey) || importKeys.has(tenantKey)) {
+        skipped++;
+        errors.push(
+          `Skipped "${row.full_name}": active tenant with phone "${normalizedPhone}" already exists in unit "${row.unit_name}".`,
+        );
+        continue;
+      }
+
       const deposit = row.deposit_amount ? parseFloat(row.deposit_amount) : 0;
 
       const { error: insertErr } = await supabase.from('tenants').insert({
         apartment_id: apartmentId,
         full_name: row.full_name.trim(),
-        phone_number: normalizePhone(row.phone_number.trim()),
+        phone_number: normalizedPhone,
         move_in_date: row.move_in_date ?? new Date().toISOString().split('T')[0],
         deposit_amount: isNaN(deposit) ? 0 : deposit,
         is_active: true,
@@ -83,10 +113,12 @@ export async function POST(request: Request) {
         errors.push(`Failed to add "${row.full_name}": ${insertErr.message}`);
       } else {
         created++;
+        importKeys.add(tenantKey);
+        existingKeys.add(tenantKey);
       }
     }
 
-    return NextResponse.json({ created, errors });
+    return NextResponse.json({ created, skipped, errors });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Internal server error';
     return NextResponse.json({ error: message }, { status: 500 });

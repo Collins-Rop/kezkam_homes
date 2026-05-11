@@ -20,6 +20,7 @@ export async function POST(request: Request) {
       reference_number,
       notes,
       mpesa_message,
+      send_sms = true,
     } = body;
 
     if (!tenant_id || !apartment_id || !payment_month) {
@@ -68,7 +69,7 @@ export async function POST(request: Request) {
 
     let smsSent = false;
 
-    if (tenant) {
+    if (tenant && send_sms) {
       const monthLabel = format(parseISO(payment_month), 'MMMM yyyy');
       const message = buildConfirmationSMS({
         tenantName: tenant.full_name,

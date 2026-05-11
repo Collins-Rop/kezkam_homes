@@ -106,7 +106,7 @@ export default function ImportTenantsModal() {
   const [rows, setRows] = useState<ParsedRow[]>([]);
   const [step, setStep] = useState<'paste' | 'preview' | 'done'>('paste');
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{ created: number; errors: string[] } | null>(null);
+  const [result, setResult] = useState<{ created: number; skipped: number; errors: string[] } | null>(null);
   const [buildings, setBuildings] = useState<Building[]>([]);
   const [selectedBuildingId, setSelectedBuildingId] = useState('');
 
@@ -153,7 +153,7 @@ export default function ImportTenantsModal() {
       body: JSON.stringify({ tenants: validRows, building_id: selectedBuildingId }),
     });
     const data = await res.json();
-    setResult({ created: data.created ?? 0, errors: data.errors ?? [] });
+    setResult({ created: data.created ?? 0, skipped: data.skipped ?? 0, errors: data.errors ?? [] });
     setLoading(false);
     setStep('done');
     router.refresh();
@@ -394,7 +394,7 @@ export default function ImportTenantsModal() {
             {/* ── Step 3: Done ────────────────────────────────────── */}
             {step === 'done' && result && (
               <div className="text-center py-8 space-y-4">
-                <div className="text-5xl">{result.created > 0 ? '🎉' : '⚠️'}</div>
+                <div className="text-5xl">{result.created > 0 ? '✓' : '!'}</div>
                 <div>
                   <p
                     className="font-semibold text-lg"
@@ -405,6 +405,11 @@ export default function ImportTenantsModal() {
                   >
                     {result.created} tenant{result.created !== 1 ? 's' : ''} imported successfully
                   </p>
+                  {result.skipped > 0 && (
+                    <p className="text-sm mt-1" style={{ color: 'var(--color-text-muted)' }}>
+                      {result.skipped} duplicate tenant{result.skipped !== 1 ? 's' : ''} skipped.
+                    </p>
+                  )}
                   {result.errors.length > 0 && (
                     <div className="mt-3 space-y-1">
                       {result.errors.map((e, i) => (
