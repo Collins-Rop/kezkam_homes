@@ -1,9 +1,11 @@
 import { createClient } from '@/lib/supabase/server';
-import { formatDate } from '@/lib/utils';
 import { FLOOR_OPTIONS } from '@/lib/supabase/types';
-import Link from 'next/link';
 import { Users, UserX } from 'lucide-react';
 import ImportTenantsModal from '@/components/tenants/ImportTenantsModal';
+import TenantBuildingGroups, {
+  type TenantBuildingGroup,
+  type TenantListItem,
+} from '@/components/tenants/TenantBuildingGroups';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +19,7 @@ export default async function TenantsPage() {
 
   const { data: tenants } = await supabase
     .from('tenants')
-    .select('*, apartments(name, floor, building_id)')
+    .select('*, apartments(name, floor, building_id, buildings(id, name))')
     .eq('is_active', true)
     .order('full_name');
 
@@ -28,23 +30,82 @@ export default async function TenantsPage() {
     .order('move_out_date', { ascending: false })
     .limit(20);
 
-  // Group active tenants by floor
-  const byFloor: Record<string, typeof tenants> = {};
+  type TenantRow = NonNullable<typeof tenants>[number];
+  type ApartmentInfo = {
+    name?: string | null;
+    floor?: string | null;
+    building_id?: string | null;
+    buildings?: { id?: string | null; name?: string | null } | null;
+  };
+
+  // Group active tenants by building, then by floor inside each building.
+  const byBuilding = new Map<
+    string,
+    {
+      name: string;
+      floors: Map<string, TenantRow[]>;
+      tenantCount: number;
+    }
+  >();
+
   for (const t of tenants ?? []) {
-    const floor = (t.apartments as { floor?: string | null } | null)?.floor ?? 'Unknown';
-    if (!byFloor[floor]) byFloor[floor] = [];
-    byFloor[floor]!.push(t);
+    const apartment = t.apartments as ApartmentInfo | null;
+    const buildingId = apartment?.building_id ?? '__none__';
+    const buildingName = apartment?.buildings?.name ?? 'No Building';
+    const floor = apartment?.floor ?? 'Unknown';
+
+    if (!byBuilding.has(buildingId)) {
+      byBuilding.set(buildingId, {
+        name: buildingName,
+        floors: new Map(),
+        tenantCount: 0,
+      });
+    }
+
+    const building = byBuilding.get(buildingId)!;
+    const floorTenants = building.floors.get(floor) ?? [];
+    floorTenants.push(t);
+    building.floors.set(floor, floorTenants);
+    building.tenantCount++;
   }
 
-  // Sort floors in logical order; unknowns go last
-  const sortedFloors = Object.keys(byFloor).sort((a, b) => {
+  function sortFloors(a: string, b: string) {
     const ai = FLOOR_ORDER.indexOf(a);
     const bi = FLOOR_ORDER.indexOf(b);
     if (ai === -1 && bi === -1) return a.localeCompare(b);
     if (ai === -1) return 1;
     if (bi === -1) return -1;
     return ai - bi;
+  }
+
+  const sortedBuildings = Array.from(byBuilding.entries()).sort(([, a], [, b]) => {
+    if (a.name === 'No Building') return 1;
+    if (b.name === 'No Building') return -1;
+    return a.name.localeCompare(b.name);
   });
+  const tenantBuildings: TenantBuildingGroup[] = sortedBuildings.map(([buildingId, building]) => ({
+    id: buildingId,
+    name: building.name,
+    tenantCount: building.tenantCount,
+    floors: Array.from(building.floors.entries())
+      .sort(([a], [b]) => sortFloors(a, b))
+      .map(([floor, floorTenants]) => ({
+        floor,
+        label: FLOOR_LABELS[floor] ?? floor,
+        tenants: floorTenants.map((tenant): TenantListItem => {
+          const apartment = tenant.apartments as ApartmentInfo | null;
+          return {
+            id: tenant.id,
+            full_name: tenant.full_name,
+            phone_number: tenant.phone_number,
+            move_in_date: tenant.move_in_date,
+            apartment_id: tenant.apartment_id,
+            apartment_name: apartment?.name ?? null,
+            building_id: apartment?.building_id ?? null,
+          };
+        }),
+      })),
+  }));
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -58,80 +119,9 @@ export default async function TenantsPage() {
         <ImportTenantsModal />
       </div>
 
-      {/* Active — grouped by floor */}
+      {/* Active — grouped by building */}
       {(tenants?.length ?? 0) > 0 ? (
-        <div className="space-y-4">
-          {sortedFloors.map((floor) => {
-            const floorTenants = byFloor[floor] ?? [];
-            const floorLabel = FLOOR_LABELS[floor] ?? floor;
-            return (
-              <div key={floor} className="card">
-                <h2
-                  className="font-semibold mb-4 pb-3 text-sm uppercase tracking-wide"
-                  style={{
-                    fontFamily: 'var(--font-display)',
-                    borderBottom: '1px solid var(--color-border)',
-                    color: 'var(--color-brand)',
-                  }}
-                >
-                  {floorLabel} · {floorTenants.length} tenant{floorTenants.length !== 1 ? 's' : ''}
-                </h2>
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>Phone</th>
-                      <th>Unit</th>
-                      <th>Since</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {floorTenants.map((t) => (
-                      <tr key={t.id}>
-                        <td>
-                          <div className="flex items-center gap-3">
-                            <div
-                              className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0"
-                              style={{ background: 'rgba(212,133,26,0.15)', color: 'var(--color-brand)' }}
-                            >
-                              {t.full_name.charAt(0).toUpperCase()}
-                            </div>
-                            <span className="font-medium">{t.full_name}</span>
-                          </div>
-                        </td>
-                        <td style={{ color: 'var(--color-text-muted)' }}>{t.phone_number}</td>
-                        <td>
-                          {t.apartment_id ? (
-                            <Link
-                              href={`/dashboard/apartments/${(t.apartments as { building_id?: string | null } | null)?.building_id ?? ''}/${t.apartment_id}`}
-                              className="text-sm hover:underline"
-                              style={{ color: 'var(--color-brand-light)' }}
-                            >
-                              {(t.apartments as { name: string } | null)?.name ?? '—'}
-                            </Link>
-                          ) : (
-                            <span style={{ color: 'var(--color-text-subtle)' }}>—</span>
-                          )}
-                        </td>
-                        <td style={{ color: 'var(--color-text-muted)' }}>{formatDate(t.move_in_date)}</td>
-                        <td>
-                          <Link
-                            href={`/dashboard/tenants/${t.id}`}
-                            className="text-xs"
-                            style={{ color: 'var(--color-brand)' }}
-                          >
-                            View →
-                          </Link>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            );
-          })}
-        </div>
+        <TenantBuildingGroups buildings={tenantBuildings} />
       ) : (
         <div className="card">
           <div className="text-center py-12">
@@ -172,7 +162,13 @@ export default async function TenantsPage() {
                     {(t.apartments as { name: string } | null)?.name ?? '—'}
                   </td>
                   <td style={{ color: 'var(--color-text-subtle)' }}>
-                    {t.move_out_date ? formatDate(t.move_out_date) : '—'}
+                    {t.move_out_date
+                      ? new Date(t.move_out_date).toLocaleDateString('en-KE', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric',
+                        })
+                      : '—'}
                   </td>
                 </tr>
               ))}
