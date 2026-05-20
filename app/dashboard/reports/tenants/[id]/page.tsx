@@ -11,7 +11,13 @@ export const dynamic = 'force-dynamic';
 export default async function TenantStatementPage({ params }: { params: { id: string } }) {
   const supabase = createClient();
 
-  const [{ data: tenant }, { data: payments }, { data: notices }] = await Promise.all([
+  const [
+    { data: tenant },
+    { data: payments },
+    { data: paymentTransactions },
+    { data: balanceAdjustments },
+    { data: notices },
+  ] = await Promise.all([
     supabase
       .from('tenants')
       .select('*, apartments(*, buildings(*))')
@@ -22,6 +28,16 @@ export default async function TenantStatementPage({ params }: { params: { id: st
       .select('*')
       .eq('tenant_id', params.id)
       .order('payment_month', { ascending: true }),
+    supabase
+      .from('payment_transactions')
+      .select('*')
+      .eq('tenant_id', params.id)
+      .order('transaction_date', { ascending: true }),
+    supabase
+      .from('tenant_balance_adjustments')
+      .select('*')
+      .eq('tenant_id', params.id)
+      .order('adjustment_month', { ascending: true }),
     supabase
       .from('notices')
       .select('*')
@@ -61,6 +77,10 @@ export default async function TenantStatementPage({ params }: { params: { id: st
     ? Number(apt.rent_amount) + Number(apt.water_bill) + Number(apt.garbage_bill) + Number(apt.security_bill ?? 0)
     : 0;
   const arrearsAmount = outstandingMonths.length * monthlyBill;
+  const manualAdjustmentsTotal = (balanceAdjustments ?? []).reduce(
+    (s, adjustment) => s + Number(adjustment.amount ?? 0),
+    0,
+  );
   // Total paid excluding deposit (deposit is a one-time item, not monthly)
   const totalPaidMonthly = (payments ?? []).reduce(
     (s, p) => s + p.rent_paid + p.water_paid + p.garbage_paid + p.security_paid,
@@ -68,7 +88,7 @@ export default async function TenantStatementPage({ params }: { params: { id: st
   );
   const totalExpectedToDate = allMonths.length * monthlyBill;
   // Net: positive = credit/advance, negative = arrears
-  const netBalance = totalPaidMonthly - totalExpectedToDate;
+  const netBalance = totalPaidMonthly - totalExpectedToDate - manualAdjustmentsTotal;
 
   const activeNotice = notices?.[0] ?? null;
   const generatedDate = format(now, 'dd MMM yyyy HH:mm');
@@ -240,6 +260,52 @@ export default async function TenantStatementPage({ params }: { params: { id: st
             <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>No payments recorded.</p>
           )}
         </div>
+
+        {paymentTransactions && paymentTransactions.length > 0 && (
+          <div>
+            <h3 className="font-semibold mb-3" style={{ fontFamily: 'var(--font-display)' }}>
+              Transaction History
+            </h3>
+            <div className="overflow-auto">
+              <table className="data-table text-sm">
+                <thead>
+                  <tr>
+                    <th>Date Captured</th>
+                    <th>Month</th>
+                    <th>Ref / Code</th>
+                    <th>Method</th>
+                    <th>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paymentTransactions.map((tx) => (
+                    <tr key={tx.id}>
+                      <td>{tx.transaction_date ? format(parseISO(tx.transaction_date.slice(0, 10)), 'dd MMM yyyy') : '—'}</td>
+                      <td style={{ color: 'var(--color-text-muted)' }}>{format(parseISO(tx.payment_month), 'MMM yyyy')}</td>
+                      <td className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{tx.reference_number ?? '—'}</td>
+                      <td><span className="badge-gray text-xs">{tx.payment_method}</span></td>
+                      <td className="font-semibold" style={{ color: 'var(--color-brand-light)' }}>
+                        {formatCurrency(tx.total_paid)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {manualAdjustmentsTotal !== 0 && (
+          <div
+            className="p-4 rounded-xl text-sm"
+            style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.22)' }}
+          >
+            <span className="font-medium" style={{ color: '#b45309' }}>Manual balance adjustments: </span>
+            <span style={{ color: 'var(--color-text-muted)' }}>
+              {manualAdjustmentsTotal > 0 ? 'Added arrears' : 'Added credit'} of {formatCurrency(Math.abs(manualAdjustmentsTotal))}
+            </span>
+          </div>
+        )}
 
         {/* Summary */}
         <div

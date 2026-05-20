@@ -13,15 +13,24 @@ import {
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import RecordPaymentModal from './RecordPaymentModal';
-import type { Tenant, Apartment, Payment } from '@/lib/supabase/types';
+import type { Tenant, Apartment, Payment, TenantBalanceAdjustment } from '@/lib/supabase/types';
 import { FLOOR_OPTIONS } from '@/lib/supabase/types';
 
 const FLOOR_ORDER = FLOOR_OPTIONS.map((f) => f.value);
 
-function isTenantSettled(tenantId: string, paymentMap: Map<string, Payment>, balances: Record<string, TenantBalance>) {
+function getTenantPaymentStatus(
+  tenantId: string,
+  paymentMap: Map<string, Payment>,
+  balances: Record<string, TenantBalance>,
+): 'paid' | 'partial' | 'unpaid' {
   const balance = balances[tenantId];
-  if (balance) return balance.endingBalance <= 0;
-  return paymentMap.has(tenantId);
+  const hasPayment = paymentMap.has(tenantId) || (balance?.currentPaid ?? 0) > 0;
+  if (balance) {
+    if (balance.endingBalance <= 0) return 'paid';
+    if (hasPayment) return 'partial';
+    return 'unpaid';
+  }
+  return hasPayment ? 'paid' : 'unpaid';
 }
 
 type AptWithBuilding = Apartment & { buildings?: { id: string; name: string } | null };
@@ -34,10 +43,12 @@ interface Props {
   allTenants: (Tenant & { apartments: unknown })[];
   apartments: Pick<Apartment, 'id' | 'name'>[];
   balances: Record<string, TenantBalance>;
+  adjustments: TenantBalanceAdjustment[];
 }
 
 export interface TenantBalance {
   carriedBalance: number;
+  currentAdjustment: number;
   currentDue: number;
   currentPaid: number;
   endingBalance: number;
@@ -51,9 +62,12 @@ interface AptGroup {
 interface BuildingGroup {
   buildingId: string;
   buildingName: string;
-  unpaidGroups: AptGroup[]; // apartments where at least one tenant hasn't paid
-  paidGroups: AptGroup[];   // apartments where every tenant has paid
+  paidGroups: AptGroup[];
+  partialGroups: AptGroup[];
+  unpaidGroups: AptGroup[];
   paidCount: number;
+  partialCount: number;
+  unpaidCount: number;
   totalCount: number;
   revenue: number;
 }
@@ -65,10 +79,12 @@ export default function PaymentTrackerTable({
   allTenants,
   apartments,
   balances,
+  adjustments,
 }: Props) {
   const [search, setSearch] = useState('');
   const [collapsedBuildings, setCollapsedBuildings] = useState<Set<string>>(new Set());
   const [collapsedPaidSections, setCollapsedPaidSections] = useState<Set<string>>(new Set());
+  const [collapsedPartialSections, setCollapsedPartialSections] = useState<Set<string>>(new Set());
   const [recordingFor, setRecordingFor] = useState<string | null>(null);
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
 
@@ -99,32 +115,42 @@ export default function PaymentTrackerTable({
         bldMap.set(buildingId, {
           buildingId,
           buildingName,
-          unpaidGroups: [],
           paidGroups: [],
+          partialGroups: [],
+          unpaidGroups: [],
           paidCount: 0,
+          partialCount: 0,
+          unpaidCount: 0,
           totalCount: 0,
           revenue: 0,
         });
       }
 
       const bg = bldMap.get(buildingId)!;
-      const allPaid = aptTenants.every(
-        (t: TenantWithApt) => isTenantSettled(t.id, paymentMap, balances),
-      );
-
-      if (allPaid) {
-        bg.paidGroups.push({ apt, tenants: aptTenants });
-      } else {
-        bg.unpaidGroups.push({ apt, tenants: aptTenants });
-      }
+      const paidTenants: TenantWithApt[] = [];
+      const partialTenants: TenantWithApt[] = [];
+      const unpaidTenants: TenantWithApt[] = [];
 
       for (const t of aptTenants) {
+        const status = getTenantPaymentStatus(t.id, paymentMap, balances);
         bg.totalCount++;
-        if (isTenantSettled(t.id, paymentMap, balances)) {
+        if (status === 'paid') {
           bg.paidCount++;
           bg.revenue += paymentMap.get(t.id)?.total_paid ?? 0;
+          paidTenants.push(t);
+        } else if (status === 'partial') {
+          bg.partialCount++;
+          bg.revenue += paymentMap.get(t.id)?.total_paid ?? 0;
+          partialTenants.push(t);
+        } else {
+          bg.unpaidCount++;
+          unpaidTenants.push(t);
         }
       }
+
+      if (paidTenants.length > 0) bg.paidGroups.push({ apt, tenants: paidTenants });
+      if (partialTenants.length > 0) bg.partialGroups.push({ apt, tenants: partialTenants });
+      if (unpaidTenants.length > 0) bg.unpaidGroups.push({ apt, tenants: unpaidTenants });
     }
 
     const result: BuildingGroup[] = Array.from(bldMap.values());
@@ -138,14 +164,16 @@ export default function PaymentTrackerTable({
       return a.apt.name.localeCompare(b.apt.name);
     }
     for (const bg of result) {
-      bg.unpaidGroups.sort(sortByFloorThenName);
       bg.paidGroups.sort(sortByFloorThenName);
+      bg.partialGroups.sort(sortByFloorThenName);
+      bg.unpaidGroups.sort(sortByFloorThenName);
     }
 
-    // Sort buildings: fully paid first, then by paid count descending, then alphabetically
+    // Sort buildings: fully paid first, then partial progress, then alphabetically
     return result.sort((a: BuildingGroup, b: BuildingGroup) => {
-      const aPct = a.totalCount > 0 ? a.paidCount / a.totalCount : 0;
-      const bPct = b.totalCount > 0 ? b.paidCount / b.totalCount : 0;
+      const aPct = a.totalCount > 0 ? (a.paidCount + a.partialCount) / a.totalCount : 0;
+      const bPct = b.totalCount > 0 ? (b.paidCount + b.partialCount) / b.totalCount : 0;
+      if (b.paidCount !== a.paidCount) return b.paidCount - a.paidCount;
       if (bPct !== aPct) return bPct - aPct;
       return a.buildingName.localeCompare(b.buildingName);
     });
@@ -153,7 +181,7 @@ export default function PaymentTrackerTable({
 
   // Overall stats
   const totalPaid = useMemo(
-    () => tenants.filter((t) => isTenantSettled(t.id, paymentMap, balances)).length,
+    () => tenants.filter((t) => getTenantPaymentStatus(t.id, paymentMap, balances) !== 'unpaid').length,
     [tenants, paymentMap, balances],
   );
   const totalRevenue = useMemo(
@@ -181,11 +209,12 @@ export default function PaymentTrackerTable({
         }
         return {
           ...bg,
-          unpaidGroups: filterGroups(bg.unpaidGroups),
           paidGroups: filterGroups(bg.paidGroups),
+          partialGroups: filterGroups(bg.partialGroups),
+          unpaidGroups: filterGroups(bg.unpaidGroups),
         };
       })
-      .filter((bg) => bg.unpaidGroups.length + bg.paidGroups.length > 0);
+      .filter((bg) => bg.paidGroups.length + bg.partialGroups.length + bg.unpaidGroups.length > 0);
   }, [buildingGroups, search]);
 
   const noAptTenants = useMemo(() => tenants.filter((t) => !t.apartment_id), [tenants]);
@@ -206,6 +235,14 @@ export default function PaymentTrackerTable({
     });
   }
 
+  function togglePartialSection(id: string) {
+    setCollapsedPartialSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
   return (
     <div className="space-y-4">
       {/* Summary bar */}
@@ -216,7 +253,9 @@ export default function PaymentTrackerTable({
         <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
           <div>
             <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-              {totalPaid} of {tenants.length} tenants paid
+              {tenants.filter((t) => getTenantPaymentStatus(t.id, paymentMap, balances) === 'paid').length} fully paid ·{' '}
+              {tenants.filter((t) => getTenantPaymentStatus(t.id, paymentMap, balances) === 'partial').length} partially paid ·{' '}
+              {tenants.filter((t) => getTenantPaymentStatus(t.id, paymentMap, balances) === 'unpaid').length} unpaid
             </span>
             <span className="text-sm ml-3" style={{ color: 'var(--color-text-muted)' }}>
               · {formatCurrency(totalRevenue)} collected
@@ -263,9 +302,10 @@ export default function PaymentTrackerTable({
         {filteredBuildingGroups.map((bg) => {
           const isCollapsed = collapsedBuildings.has(bg.buildingId);
           const isPaidCollapsed = collapsedPaidSections.has(bg.buildingId);
-          const unpaidCount = bg.totalCount - bg.paidCount;
-          const pct = bg.totalCount > 0 ? Math.round((bg.paidCount / bg.totalCount) * 100) : 0;
-          const allBuildingPaid = unpaidCount === 0 && bg.totalCount > 0;
+          const isPartialCollapsed = collapsedPartialSections.has(bg.buildingId);
+          const paidOrPartialCount = bg.paidCount + bg.partialCount;
+          const pct = bg.totalCount > 0 ? Math.round((paidOrPartialCount / bg.totalCount) * 100) : 0;
+          const allBuildingPaid = bg.paidCount === bg.totalCount && bg.totalCount > 0;
 
           return (
             <div
@@ -297,7 +337,7 @@ export default function PaymentTrackerTable({
                     {bg.buildingName}
                   </div>
                   <div className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
-                    {bg.paidCount}/{bg.totalCount} tenants paid · {formatCurrency(bg.revenue)} collected
+                    {bg.paidCount} fully paid · {bg.partialCount} partial · {bg.unpaidCount} unpaid · {formatCurrency(bg.revenue)} collected
                   </div>
                 </div>
                 {/* Mini progress */}
@@ -330,7 +370,7 @@ export default function PaymentTrackerTable({
               {!isCollapsed && (
                 <div style={{ background: 'var(--color-surface)' }}>
 
-                  {/* ── Paid section ── */}
+                  {/* ── Fully paid section ── */}
                   {bg.paidGroups.length > 0 && (
                     <div>
                       <button
@@ -347,7 +387,7 @@ export default function PaymentTrackerTable({
                           className="text-xs font-semibold uppercase tracking-wide flex-1"
                           style={{ color: '#15803d' }}
                         >
-                          Paid — {bg.paidGroups.reduce((s, g) => s + g.tenants.length, 0)} tenants
+                          Fully Paid — {bg.paidGroups.reduce((s, g) => s + g.tenants.length, 0)} tenants
                         </span>
                         {isPaidCollapsed
                           ? <ChevronRight size={13} style={{ color: '#15803d' }} />
@@ -373,6 +413,50 @@ export default function PaymentTrackerTable({
                     </div>
                   )}
 
+                  {/* ── Partially paid section ── */}
+                  {bg.partialGroups.length > 0 && (
+                    <div>
+                      <button
+                        type="button"
+                        className="w-full px-5 py-2.5 flex items-center gap-2 text-left"
+                        style={{
+                          background: 'rgba(245,158,11,0.06)',
+                          borderTop: bg.paidGroups.length > 0 ? '1px solid var(--color-border)' : 'none',
+                          borderBottom: isPartialCollapsed ? 'none' : '1px solid rgba(245,158,11,0.18)',
+                        }}
+                        onClick={() => togglePartialSection(bg.buildingId)}
+                      >
+                        <CheckCircle size={14} style={{ color: '#d97706' }} />
+                        <span
+                          className="text-xs font-semibold uppercase tracking-wide flex-1"
+                          style={{ color: '#b45309' }}
+                        >
+                          Partially Paid — {bg.partialGroups.reduce((s, g) => s + g.tenants.length, 0)} tenants
+                        </span>
+                        {isPartialCollapsed
+                          ? <ChevronRight size={13} style={{ color: '#b45309' }} />
+                          : <ChevronDown size={13} style={{ color: '#b45309' }} />
+                        }
+                      </button>
+                      {!isPartialCollapsed && (
+                        <div className="divide-y" style={{ borderColor: 'var(--color-border)' }}>
+                          {bg.partialGroups.map(({ apt, tenants: aptTenants }) => (
+                            <AptBlock
+                              key={apt.id}
+                              apt={apt}
+                              tenants={aptTenants}
+                              paymentMap={paymentMap}
+                              balances={balances}
+                              onRecord={(id) => setRecordingFor(id)}
+                              onEdit={(payment) => setEditingPayment(payment)}
+                              showSearch={!!search.trim()}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* ── Unpaid section ── */}
                   {bg.unpaidGroups.length > 0 && (
                     <div>
@@ -380,7 +464,7 @@ export default function PaymentTrackerTable({
                         className="px-5 py-2.5 flex items-center gap-2"
                         style={{
                           background: 'rgba(220,38,38,0.04)',
-                          borderTop: bg.paidGroups.length > 0 ? '1px solid var(--color-border)' : 'none',
+                          borderTop: bg.paidGroups.length + bg.partialGroups.length > 0 ? '1px solid var(--color-border)' : 'none',
                           borderBottom: '1px solid rgba(220,38,38,0.12)',
                         }}
                       >
@@ -389,7 +473,7 @@ export default function PaymentTrackerTable({
                           className="text-xs font-semibold uppercase tracking-wide"
                           style={{ color: '#b91c1c' }}
                         >
-                          Unpaid — {bg.unpaidGroups.reduce((s, g) => s + g.tenants.filter((t) => !isTenantSettled(t.id, paymentMap, balances)).length, 0)} tenants
+                          Unpaid — {bg.unpaidGroups.reduce((s, g) => s + g.tenants.length, 0)} tenants
                         </span>
                       </div>
                       <div className="divide-y" style={{ borderColor: 'var(--color-border)' }}>
@@ -457,6 +541,7 @@ export default function PaymentTrackerTable({
           tenants={allTenants}
           apartments={apartments}
           selectedMonth={selectedMonth}
+          adjustments={adjustments}
           prefilledTenantId={recordingFor}
           isOpen={true}
           onClose={() => setRecordingFor(null)}
@@ -469,6 +554,8 @@ export default function PaymentTrackerTable({
           apartments={apartments}
           selectedMonth={selectedMonth}
           existingPayment={editingPayment}
+          existingAdjustment={adjustments.find((a) => a.tenant_id === editingPayment.tenant_id) ?? null}
+          adjustments={adjustments}
           isOpen={true}
           onClose={() => setEditingPayment(null)}
         />
@@ -496,10 +583,15 @@ function AptBlock({
   showSearch: boolean;
 }) {
   const [open, setOpen] = useState(showSearch);
-  const paidCount = tenants.filter((t) => isTenantSettled(t.id, paymentMap, balances)).length;
+  const paidCount = tenants.filter(
+    (t) => getTenantPaymentStatus(t.id, paymentMap, balances) !== 'unpaid',
+  ).length;
+  const partialCount = tenants.filter(
+    (t) => getTenantPaymentStatus(t.id, paymentMap, balances) === 'partial',
+  ).length;
   const aptCollected = tenants.reduce((s, t) => s + (paymentMap.get(t.id)?.total_paid ?? 0), 0);
-  const allPaid = paidCount === tenants.length;
-  const badgeColor = allPaid ? '#15803d' : '#b91c1c';
+  const allPaidOrPartial = paidCount === tenants.length;
+  const badgeColor = partialCount > 0 ? '#b45309' : allPaidOrPartial ? '#15803d' : '#b91c1c';
 
   return (
     <div>
@@ -528,7 +620,12 @@ function AptBlock({
         <span
           className="text-xs font-semibold px-2 py-0.5 rounded-full"
           style={{
-            background: allPaid ? 'rgba(22,163,74,0.1)' : 'rgba(220,38,38,0.08)',
+            background:
+              partialCount > 0
+                ? 'rgba(245,158,11,0.12)'
+                : allPaidOrPartial
+                ? 'rgba(22,163,74,0.1)'
+                : 'rgba(220,38,38,0.08)',
             color: badgeColor,
           }}
         >
@@ -544,7 +641,15 @@ function AptBlock({
             const expected = apt.rent_amount + apt.water_bill + apt.garbage_bill + (apt.security_bill ?? 0);
             const balance = balances[tenant.id];
             const isCoveredByCredit = !payment && !!balance && balance.endingBalance <= 0;
-            const isSettled = isTenantSettled(tenant.id, paymentMap, balances);
+            const status = getTenantPaymentStatus(tenant.id, paymentMap, balances);
+            const isSettled = status === 'paid';
+            const isPartial = status === 'partial';
+            const statusColor = isSettled ? '#16a34a' : isPartial ? '#d97706' : '#dc2626';
+            const statusBg = isSettled
+              ? 'rgba(22,163,74,0.03)'
+              : isPartial
+              ? 'rgba(245,158,11,0.05)'
+              : 'rgba(220,38,38,0.02)';
 
             return (
               <div
@@ -552,12 +657,12 @@ function AptBlock({
                 className="flex flex-wrap items-center gap-3 px-7 py-3"
                 style={{
                   borderTop: '1px solid var(--color-border)',
-                  background: isSettled ? 'rgba(22,163,74,0.03)' : 'rgba(220,38,38,0.02)',
+                  background: statusBg,
                 }}
               >
-                {isSettled
-                  ? <CheckCircle size={16} style={{ color: '#16a34a', flexShrink: 0 }} />
-                  : <XCircle size={16} style={{ color: '#dc2626', flexShrink: 0 }} />
+                {status === 'unpaid'
+                  ? <XCircle size={16} style={{ color: statusColor, flexShrink: 0 }} />
+                  : <CheckCircle size={16} style={{ color: statusColor, flexShrink: 0 }} />
                 }
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-sm truncate" style={{ color: 'var(--color-text)' }}>
@@ -576,6 +681,16 @@ function AptBlock({
                         : `Previous overpayment ${formatCurrency(Math.abs(balance.carriedBalance))}`}
                     </p>
                   )}
+                  {balance && balance.currentAdjustment !== 0 && (
+                    <p
+                      className="text-xs mt-0.5"
+                      style={{ color: balance.currentAdjustment > 0 ? '#b45309' : '#15803d' }}
+                    >
+                      {balance.currentAdjustment > 0
+                        ? `Manual arrears ${formatCurrency(balance.currentAdjustment)}`
+                        : `Manual credit ${formatCurrency(Math.abs(balance.currentAdjustment))}`}
+                    </p>
+                  )}
                 </div>
                 <div className="text-right hidden sm:block">
                   {payment ? (
@@ -589,7 +704,7 @@ function AptBlock({
                       {balance && balance.endingBalance !== 0 && (
                         <p
                           className="text-xs font-medium"
-                          style={{ color: balance.endingBalance > 0 ? '#b91c1c' : '#15803d' }}
+                          style={{ color: balance.endingBalance > 0 ? '#b45309' : '#15803d' }}
                         >
                           {balance.endingBalance > 0
                             ? `Still due ${formatCurrency(balance.endingBalance)}`
@@ -616,15 +731,33 @@ function AptBlock({
                   )}
                 </div>
                 {payment ? (
-                  <button
-                    type="button"
-                    onClick={() => onEdit(payment)}
-                    className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
-                    style={{ background: 'rgba(22,163,74,0.1)', color: '#15803d', border: '1px solid rgba(22,163,74,0.2)' }}
-                  >
-                    <Pencil size={12} />
-                    Edit
-                  </button>
+                  <div className="flex flex-shrink-0 items-center gap-2">
+                    {isPartial && (
+                      <span
+                        className="text-xs px-2 py-1 rounded-full"
+                        style={{
+                          background: 'rgba(245,158,11,0.12)',
+                          color: '#b45309',
+                          border: '1px solid rgba(245,158,11,0.25)',
+                        }}
+                      >
+                        Partial payment
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => onEdit(payment)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
+                      style={{
+                        background: isPartial ? 'rgba(245,158,11,0.12)' : 'rgba(22,163,74,0.1)',
+                        color: isPartial ? '#b45309' : '#15803d',
+                        border: isPartial ? '1px solid rgba(245,158,11,0.25)' : '1px solid rgba(22,163,74,0.2)',
+                      }}
+                    >
+                      <Pencil size={12} />
+                      Edit
+                    </button>
+                  </div>
                 ) : isCoveredByCredit ? (
                   <span
                     className="flex-shrink-0 text-xs px-2 py-1 rounded-full"

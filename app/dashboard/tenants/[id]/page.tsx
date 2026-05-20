@@ -14,7 +14,14 @@ export const dynamic = 'force-dynamic';
 export default async function TenantDetailPage({ params }: { params: { id: string } }) {
   const supabase = createClient();
 
-  const [{ data: tenant }, { data: payments }, { data: smsLogs }, { data: notices }] =
+  const [
+    { data: tenant },
+    { data: payments },
+    { data: paymentTransactions },
+    { data: balanceAdjustments },
+    { data: smsLogs },
+    { data: notices },
+  ] =
     await Promise.all([
       supabase
         .from('tenants')
@@ -26,6 +33,16 @@ export default async function TenantDetailPage({ params }: { params: { id: strin
         .select('*')
         .eq('tenant_id', params.id)
         .order('payment_month', { ascending: false }),
+      supabase
+        .from('payment_transactions')
+        .select('*')
+        .eq('tenant_id', params.id)
+        .order('transaction_date', { ascending: false }),
+      supabase
+        .from('tenant_balance_adjustments')
+        .select('*')
+        .eq('tenant_id', params.id)
+        .order('adjustment_month', { ascending: true }),
       supabase
         .from('sms_logs')
         .select('*')
@@ -63,11 +80,15 @@ export default async function TenantDetailPage({ params }: { params: { id: strin
     ? Number(apt.rent_amount) + Number(apt.water_bill) + Number(apt.garbage_bill) + Number(apt.security_bill ?? 0)
     : 0;
   const arrearsAmount = outstandingMonths.length * monthlyBill;
+  const manualAdjustmentsTotal = (balanceAdjustments ?? []).reduce(
+    (s, adjustment) => s + Number(adjustment.amount ?? 0),
+    0,
+  );
   const totalPaidMonthly = (payments ?? []).reduce(
     (s, p) => s + p.rent_paid + p.water_paid + p.garbage_paid + p.security_paid, 0
   );
   const totalExpectedToDate = allMonths.length * monthlyBill;
-  const netBalance = totalPaidMonthly - totalExpectedToDate;
+  const netBalance = totalPaidMonthly - totalExpectedToDate - manualAdjustmentsTotal;
   const currentMonthStr = format(startOfMonth(now), 'yyyy-MM');
   const advanceMonths = (payments ?? []).filter(
     (p) => p.payment_month.slice(0, 7) > currentMonthStr
@@ -187,6 +208,39 @@ export default async function TenantDetailPage({ params }: { params: { id: strin
             )}
           </div>
 
+          {/* Transaction history */}
+          {paymentTransactions && paymentTransactions.length > 0 && (
+            <div className="card">
+              <h2 className="font-semibold mb-5" style={{ fontFamily: 'var(--font-display)' }}>
+                Transaction History
+              </h2>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Date Captured</th>
+                    <th>Month</th>
+                    <th>Ref</th>
+                    <th>Method</th>
+                    <th className="text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paymentTransactions.map((tx) => (
+                    <tr key={tx.id}>
+                      <td>{tx.transaction_date ? formatDate(tx.transaction_date.slice(0, 10)) : '—'}</td>
+                      <td style={{ color: 'var(--color-text-muted)' }}>{formatMonth(tx.payment_month)}</td>
+                      <td style={{ color: 'var(--color-text-muted)' }}>{tx.reference_number ?? '—'}</td>
+                      <td><span className="badge-gray text-xs">{tx.payment_method}</span></td>
+                      <td className="text-right font-semibold" style={{ color: 'var(--color-brand-light)' }}>
+                        {formatCurrency(tx.total_paid)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
           {/* SMS logs */}
           <div className="card">
             <h2 className="font-semibold mb-4" style={{ fontFamily: 'var(--font-display)' }}>
@@ -271,6 +325,16 @@ export default async function TenantDetailPage({ params }: { params: { id: strin
                 <div className="flex justify-between" style={{ borderTop: '1px solid var(--color-border)', paddingTop: '0.5rem' }}>
                   <span style={{ color: 'var(--color-text-muted)' }}>Monthly bill</span>
                   <span>{formatCurrency(monthlyBill)}</span>
+                </div>
+              )}
+              {manualAdjustmentsTotal !== 0 && (
+                <div className="flex justify-between">
+                  <span style={{ color: manualAdjustmentsTotal > 0 ? '#b45309' : '#15803d' }}>
+                    Manual {manualAdjustmentsTotal > 0 ? 'arrears' : 'credit'}
+                  </span>
+                  <span style={{ color: manualAdjustmentsTotal > 0 ? '#b45309' : '#15803d' }}>
+                    {formatCurrency(Math.abs(manualAdjustmentsTotal))}
+                  </span>
                 </div>
               )}
               <div

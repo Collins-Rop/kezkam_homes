@@ -54,7 +54,15 @@ export default async function BuildingReportPage({ params }: { params: { id: str
         .order('payment_month', { ascending: false })
     : { data: [] };
 
+  const { data: allBuildingAdjustments } = unitIds.size > 0
+    ? await supabase
+        .from('tenant_balance_adjustments')
+        .select('*')
+        .in('apartment_id', Array.from(unitIds))
+    : { data: [] };
+
   const allPaymentsData = allBuildingPayments ?? [];
+  const allAdjustmentsData = allBuildingAdjustments ?? [];
   // Last 6 months slice for the monthly collection table
   const paymentsData = allPaymentsData.filter(
     (p) => p.payment_month >= sixMonthsAgo
@@ -135,6 +143,13 @@ export default async function BuildingReportPage({ params }: { params: { id: str
     if (!paidMonthsByTenant.has(p.tenant_id)) paidMonthsByTenant.set(p.tenant_id, new Set());
     paidMonthsByTenant.get(p.tenant_id)!.add(p.payment_month.slice(0, 7));
   }
+  const adjustmentsByTenant = new Map<string, number>();
+  for (const adjustment of allAdjustmentsData) {
+    adjustmentsByTenant.set(
+      adjustment.tenant_id,
+      (adjustmentsByTenant.get(adjustment.tenant_id) ?? 0) + Number(adjustment.amount ?? 0),
+    );
+  }
 
   // Unpaid tenants this month + cumulative arrears
   const paidThisMonthTenantIds = new Set(currentMonthPayments.map((p) => p.tenant_id));
@@ -151,13 +166,15 @@ export default async function BuildingReportPage({ params }: { params: { id: str
         const months = eachMonthOfInterval({ start: startOfMonth(moveIn), end: startOfMonth(now) });
         const tenantPaid = paidMonthsByTenant.get(t.id) ?? new Set<string>();
         const arrearsMonths = months.filter((m) => !tenantPaid.has(format(m, 'yyyy-MM')));
-        const arrearsAmount = arrearsMonths.length * monthlyBill;
+        const manualAdjustment = adjustmentsByTenant.get(t.id) ?? 0;
+        const arrearsAmount = arrearsMonths.length * monthlyBill + manualAdjustment;
         return {
           ...t,
           unit: u.name,
           monthlyBill,
           arrearsMonths: arrearsMonths.length,
           arrearsAmount,
+          manualAdjustment,
         };
       });
     })
@@ -172,9 +189,12 @@ export default async function BuildingReportPage({ params }: { params: { id: str
         const moveIn = parseISO(t.move_in_date);
         const months = eachMonthOfInterval({ start: startOfMonth(moveIn), end: startOfMonth(now) });
         const tenantPaid = paidMonthsByTenant.get(t.id) ?? new Set<string>();
-        return months.filter((m) => !tenantPaid.has(format(m, 'yyyy-MM'))).length * monthlyBill;
+        return (
+          months.filter((m) => !tenantPaid.has(format(m, 'yyyy-MM'))).length * monthlyBill +
+          (adjustmentsByTenant.get(t.id) ?? 0)
+        );
       });
-  }).reduce((s, v) => s + v, 0);
+  }).reduce((s, v) => s + Math.max(0, v), 0);
 
   return (
     <div className="space-y-6 animate-fade-in">

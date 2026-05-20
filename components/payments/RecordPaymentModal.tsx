@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Plus, X, CreditCard, MessageCircle, Zap, ChevronDown, ChevronUp } from 'lucide-react';
 import { monthOptions, formatCurrency } from '@/lib/utils';
 import { format, addMonths, parseISO } from 'date-fns';
-import type { Tenant, Apartment, Payment } from '@/lib/supabase/types';
+import type { Tenant, Apartment, Payment, TenantBalanceAdjustment } from '@/lib/supabase/types';
 
 interface Props {
   tenants: (Tenant & { apartments: unknown })[];
@@ -13,6 +13,8 @@ interface Props {
   selectedMonth: string;
   prefilledTenantId?: string;
   existingPayment?: Payment;
+  existingAdjustment?: TenantBalanceAdjustment | null;
+  adjustments?: TenantBalanceAdjustment[];
   isOpen?: boolean;
   onClose?: () => void;
 }
@@ -96,6 +98,9 @@ const EMPTY_FORM = (month: string) => ({
   payment_method: 'M-Pesa',
   reference_number: '',
   payment_date: format(new Date(), 'yyyy-MM-dd'),
+  entry_mode: 'replace_summary',
+  arrears_adjustment_amount: '',
+  arrears_adjustment_notes: '',
   notes: '',
   mpesa_message: '',
 });
@@ -105,6 +110,8 @@ export default function RecordPaymentModal({
   selectedMonth,
   prefilledTenantId,
   existingPayment,
+  existingAdjustment,
+  adjustments = [],
   isOpen,
   onClose,
 }: Props) {
@@ -124,22 +131,25 @@ export default function RecordPaymentModal({
 
   useEffect(() => {
     if (controlled && isOpen && existingPayment) {
+      const adjustment =
+        existingAdjustment ?? adjustments.find((a) => a.tenant_id === existingPayment.tenant_id);
       setForm({
         tenant_id: existingPayment.tenant_id,
         payment_month: existingPayment.payment_month,
         months_count: 1,
-        rent_paid: String(existingPayment.rent_paid ?? ''),
-        water_paid: String(existingPayment.water_paid ?? ''),
-        garbage_paid: String(existingPayment.garbage_paid ?? ''),
-        security_paid: String(existingPayment.security_paid ?? ''),
-        deposit_paid: String(existingPayment.deposit_paid ?? ''),
+        rent_paid: '',
+        water_paid: '',
+        garbage_paid: '',
+        security_paid: '',
+        deposit_paid: '',
         payment_method: existingPayment.payment_method ?? 'M-Pesa',
-        reference_number: existingPayment.reference_number ?? '',
-        payment_date: existingPayment.payment_date
-          ? format(parseISO(existingPayment.payment_date), 'yyyy-MM-dd')
-          : format(new Date(), 'yyyy-MM-dd'),
-        notes: existingPayment.notes ?? '',
-        mpesa_message: existingPayment.mpesa_message ?? '',
+        reference_number: '',
+        payment_date: format(new Date(), 'yyyy-MM-dd'),
+        entry_mode: 'add_transaction',
+        arrears_adjustment_amount: adjustment ? String(adjustment.amount ?? '') : '',
+        arrears_adjustment_notes: adjustment?.notes ?? '',
+        notes: '',
+        mpesa_message: '',
       });
       return;
     }
@@ -148,12 +158,14 @@ export default function RecordPaymentModal({
       prefillFromTenant(prefilledTenantId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, prefilledTenantId, existingPayment?.id]);
+  }, [isOpen, prefilledTenantId, existingPayment?.id, existingAdjustment?.id, adjustments]);
 
   const selectedTenant = tenants.find((t) => t.id === form.tenant_id);
   const apt = selectedTenant?.apartments as Record<string, number> | null;
   const isEditing = !!existingPayment;
   const monthsCount = isEditing ? 1 : Math.max(1, Math.min(12, Number(form.months_count) || 1));
+  const selectedAdjustment =
+    existingAdjustment ?? adjustments.find((a) => a.tenant_id === form.tenant_id) ?? null;
 
   // Generate the list of months this payment will cover
   const coveredMonths = Array.from({ length: monthsCount }, (_, i) => {
@@ -165,6 +177,7 @@ export default function RecordPaymentModal({
   function prefillFromTenant(tenantId: string) {
     const tenant = tenants.find((t) => t.id === tenantId);
     const a = tenant?.apartments as Record<string, number> | null;
+    const adjustment = adjustments.find((item) => item.tenant_id === tenantId);
     if (a) {
       setForm((f) => ({
         ...f,
@@ -174,9 +187,17 @@ export default function RecordPaymentModal({
         water_paid: String(a.water_bill ?? ''),
         garbage_paid: String(a.garbage_bill ?? ''),
         security_paid: String(a.security_bill ?? ''),
+        arrears_adjustment_amount: adjustment ? String(adjustment.amount ?? '') : '',
+        arrears_adjustment_notes: adjustment?.notes ?? '',
       }));
     } else {
-      setForm((f) => ({ ...f, tenant_id: tenantId, payment_month: selectedMonth }));
+      setForm((f) => ({
+        ...f,
+        tenant_id: tenantId,
+        payment_month: selectedMonth,
+        arrears_adjustment_amount: adjustment ? String(adjustment.amount ?? '') : '',
+        arrears_adjustment_notes: adjustment?.notes ?? '',
+      }));
     }
   }
 
@@ -189,6 +210,27 @@ export default function RecordPaymentModal({
       return;
     }
     setForm((f) => ({ ...f, [name]: value }));
+  }
+
+  function handleEntryModeChange(value: string) {
+    if (!existingPayment) return;
+
+    setForm((f) => ({
+      ...f,
+      entry_mode: value,
+      rent_paid: value === 'replace_summary' ? String(existingPayment.rent_paid ?? '') : '',
+      water_paid: value === 'replace_summary' ? String(existingPayment.water_paid ?? '') : '',
+      garbage_paid: value === 'replace_summary' ? String(existingPayment.garbage_paid ?? '') : '',
+      security_paid: value === 'replace_summary' ? String(existingPayment.security_paid ?? '') : '',
+      deposit_paid: value === 'replace_summary' ? String(existingPayment.deposit_paid ?? '') : '',
+      reference_number: value === 'replace_summary' ? existingPayment.reference_number ?? '' : '',
+      payment_date:
+        value === 'replace_summary' && existingPayment.payment_date
+          ? format(parseISO(existingPayment.payment_date), 'yyyy-MM-dd')
+          : format(new Date(), 'yyyy-MM-dd'),
+      notes: value === 'replace_summary' ? existingPayment.notes ?? '' : '',
+      mpesa_message: value === 'replace_summary' ? existingPayment.mpesa_message ?? '' : '',
+    }));
   }
 
   function handlePasteSMS() {
@@ -258,6 +300,7 @@ export default function RecordPaymentModal({
       payment_method: form.payment_method,
       reference_number: form.reference_number || null,
       payment_date: form.payment_date || new Date().toISOString(),
+      entry_mode: isEditing ? form.entry_mode : 'replace_summary',
       notes: form.notes || null,
       mpesa_message: form.mpesa_message || null,
     };
@@ -271,7 +314,13 @@ export default function RecordPaymentModal({
           ...basePayload,
           payment_month: coveredMonths[i]!.value,
           deposit_paid: i === 0 ? (parseFloat(form.deposit_paid) || 0) : 0,
-          send_sms: !isEditing,
+          ...(i === 0
+            ? {
+                arrears_adjustment_amount: parseFloat(form.arrears_adjustment_amount) || 0,
+                arrears_adjustment_notes: form.arrears_adjustment_notes || null,
+              }
+            : {}),
+          send_sms: !isEditing || form.entry_mode === 'add_transaction',
         }),
       });
       const data = await res.json();
@@ -361,6 +410,32 @@ export default function RecordPaymentModal({
                     ))}
                   </select>
                 </div>
+
+                {isEditing && (
+                  <div
+                    className="p-3 rounded-xl space-y-3"
+                    style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)' }}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <span style={{ color: 'var(--color-text-muted)' }}>Current monthly total</span>
+                      <span className="font-semibold" style={{ color: 'var(--color-brand-light)' }}>
+                        {formatCurrency(existingPayment.total_paid)}
+                      </span>
+                    </div>
+                    <div>
+                      <label className="label">Update Type</label>
+                      <select
+                        className="input"
+                        name="entry_mode"
+                        value={form.entry_mode}
+                        onChange={(e) => handleEntryModeChange(e.target.value)}
+                      >
+                        <option value="add_transaction">Add another transaction</option>
+                        <option value="replace_summary">Correct monthly totals</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
 
                 {/* Payment date — prominent, near top */}
                 <div
@@ -505,7 +580,9 @@ export default function RecordPaymentModal({
 
                 {/* Amounts — per month */}
                 <p className="text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>
-                  Monthly amounts (per month):
+                  {isEditing && form.entry_mode === 'add_transaction'
+                    ? 'This transaction amount:'
+                    : 'Monthly amounts (per month):'}
                 </p>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -528,6 +605,39 @@ export default function RecordPaymentModal({
                     <input className="input" name="security_paid" type="number" min="0"
                       value={form.security_paid} onChange={handleChange} placeholder="0" />
                   </div>
+                </div>
+
+                {/* Manual arrears adjustment */}
+                <div
+                  className="p-3 rounded-xl space-y-3"
+                  style={{ background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.25)' }}
+                >
+                  <div>
+                    <label className="label">Carry-forward arrears adjustment (KES)</label>
+                    <input
+                      className="input mt-1"
+                      name="arrears_adjustment_amount"
+                      type="number"
+                      value={form.arrears_adjustment_amount}
+                      onChange={handleChange}
+                      placeholder="0 — positive adds arrears, negative adds credit"
+                    />
+                  </div>
+                  <div>
+                    <label className="label">Arrears adjustment notes</label>
+                    <input
+                      className="input"
+                      name="arrears_adjustment_notes"
+                      value={form.arrears_adjustment_notes}
+                      onChange={handleChange}
+                      placeholder="e.g. Opening arrears before system records"
+                    />
+                  </div>
+                  {selectedAdjustment && (
+                    <p className="text-xs" style={{ color: '#b45309' }}>
+                      Existing adjustment for this month: {formatCurrency(selectedAdjustment.amount)}
+                    </p>
+                  )}
                 </div>
 
                 {/* Deposit — one-time, separate line */}

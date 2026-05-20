@@ -3,7 +3,7 @@ import { formatMonth, currentMonthISO } from '@/lib/utils';
 import RecordPaymentModal from '@/components/payments/RecordPaymentModal';
 import PaymentTrackerTable, { type TenantBalance } from '@/components/payments/PaymentTrackerTable';
 import PaymentFilters from '@/components/payments/PaymentFilters';
-import type { Apartment, Tenant, Payment } from '@/lib/supabase/types';
+import type { Apartment, Tenant, Payment, TenantBalanceAdjustment } from '@/lib/supabase/types';
 import { differenceInCalendarMonths, parseISO, startOfMonth } from 'date-fns';
 
 export const dynamic = 'force-dynamic';
@@ -16,7 +16,14 @@ export default async function PaymentsPage({ searchParams }: Props) {
   const supabase = createClient();
   const selectedMonth = searchParams.month || currentMonthISO();
 
-  const [{ data: tenantsRaw }, { data: monthPayments }, { data: previousPayments }, { data: apartments }] =
+  const [
+    { data: tenantsRaw },
+    { data: monthPayments },
+    { data: previousPayments },
+    { data: apartments },
+    { data: monthAdjustments },
+    { data: previousAdjustments },
+  ] =
     await Promise.all([
       supabase
         .from('tenants')
@@ -26,6 +33,8 @@ export default async function PaymentsPage({ searchParams }: Props) {
       supabase.from('payments').select('*').eq('payment_month', selectedMonth),
       supabase.from('payments').select('*').lt('payment_month', selectedMonth),
       supabase.from('apartments').select('id, name').order('name'),
+      supabase.from('tenant_balance_adjustments').select('*').eq('adjustment_month', selectedMonth),
+      supabase.from('tenant_balance_adjustments').select('*').lt('adjustment_month', selectedMonth),
     ]);
 
   // Filter by apartment if requested
@@ -39,6 +48,18 @@ export default async function PaymentsPage({ searchParams }: Props) {
     const existing = previousPaymentsByTenant.get(payment.tenant_id) ?? [];
     existing.push(payment);
     previousPaymentsByTenant.set(payment.tenant_id, existing);
+  }
+  const monthAdjustmentMap = new Map(
+    ((monthAdjustments as TenantBalanceAdjustment[]) ?? []).map((adjustment) => [
+      adjustment.tenant_id,
+      adjustment,
+    ]),
+  );
+  const previousAdjustmentsByTenant = new Map<string, TenantBalanceAdjustment[]>();
+  for (const adjustment of (previousAdjustments as TenantBalanceAdjustment[]) ?? []) {
+    const existing = previousAdjustmentsByTenant.get(adjustment.tenant_id) ?? [];
+    existing.push(adjustment);
+    previousAdjustmentsByTenant.set(adjustment.tenant_id, existing);
   }
 
   const balances: Record<string, TenantBalance> = {};
@@ -62,7 +83,12 @@ export default async function PaymentsPage({ searchParams }: Props) {
         payment.security_paid,
       0,
     );
-    const carriedBalance = priorExpected - priorPaid;
+    const priorAdjustments = (previousAdjustmentsByTenant.get(tenant.id) ?? []).reduce(
+      (sum, adjustment) => sum + Number(adjustment.amount ?? 0),
+      0,
+    );
+    const carriedBalance = priorExpected + priorAdjustments - priorPaid;
+    const currentAdjustment = Number(monthAdjustmentMap.get(tenant.id)?.amount ?? 0);
     const currentPayment = monthPaymentMap.get(tenant.id);
     const currentPaid = currentPayment
       ? currentPayment.rent_paid +
@@ -73,9 +99,10 @@ export default async function PaymentsPage({ searchParams }: Props) {
 
     balances[tenant.id] = {
       carriedBalance,
-      currentDue: currentExpected + carriedBalance,
+      currentAdjustment,
+      currentDue: currentExpected + carriedBalance + currentAdjustment,
       currentPaid,
-      endingBalance: currentExpected + carriedBalance - currentPaid,
+      endingBalance: currentExpected + carriedBalance + currentAdjustment - currentPaid,
     };
   }
 
@@ -93,6 +120,7 @@ export default async function PaymentsPage({ searchParams }: Props) {
           tenants={(tenantsRaw as (Tenant & { apartments: unknown })[]) ?? []}
           apartments={apartments ?? []}
           selectedMonth={selectedMonth}
+          adjustments={(monthAdjustments as TenantBalanceAdjustment[]) ?? []}
         />
       </div>
 
@@ -111,6 +139,7 @@ export default async function PaymentsPage({ searchParams }: Props) {
         allTenants={(tenantsRaw as (Tenant & { apartments: unknown })[]) ?? []}
         apartments={apartments ?? []}
         balances={balances}
+        adjustments={(monthAdjustments as TenantBalanceAdjustment[]) ?? []}
       />
     </div>
   );

@@ -20,6 +20,9 @@ export async function POST(request: Request) {
       reference_number,
       notes,
       mpesa_message,
+      entry_mode = 'replace_summary',
+      arrears_adjustment_amount,
+      arrears_adjustment_notes,
       send_sms = true,
     } = body;
 
@@ -31,6 +34,33 @@ export async function POST(request: Request) {
     }
 
     const supabase = createServiceClient();
+    const normalizedEntryMode =
+      entry_mode === 'add_transaction' ? 'add_transaction' : 'replace_summary';
+    const transactionAmounts = {
+      rent_paid: Number(rent_paid ?? 0),
+      water_paid: Number(water_paid ?? 0),
+      garbage_paid: Number(garbage_paid ?? 0),
+      security_paid: Number(security_paid ?? 0),
+      deposit_paid: Number(deposit_paid ?? 0),
+    };
+
+    const { data: existingPayment } = await supabase
+      .from('payments')
+      .select('*')
+      .eq('tenant_id', tenant_id)
+      .eq('payment_month', payment_month)
+      .maybeSingle();
+
+    const shouldAddToExisting = normalizedEntryMode === 'add_transaction' && !!existingPayment;
+    const summaryAmounts = shouldAddToExisting
+      ? {
+          rent_paid: Number(existingPayment.rent_paid ?? 0) + transactionAmounts.rent_paid,
+          water_paid: Number(existingPayment.water_paid ?? 0) + transactionAmounts.water_paid,
+          garbage_paid: Number(existingPayment.garbage_paid ?? 0) + transactionAmounts.garbage_paid,
+          security_paid: Number(existingPayment.security_paid ?? 0) + transactionAmounts.security_paid,
+          deposit_paid: Number(existingPayment.deposit_paid ?? 0) + transactionAmounts.deposit_paid,
+        }
+      : transactionAmounts;
 
     // Upsert — allows correcting a payment within the same month
     const { data: payment, error: payErr } = await supabase
@@ -40,11 +70,11 @@ export async function POST(request: Request) {
           tenant_id,
           apartment_id,
           payment_month,
-          rent_paid: rent_paid ?? 0,
-          water_paid: water_paid ?? 0,
-          garbage_paid: garbage_paid ?? 0,
-          security_paid: security_paid ?? 0,
-          deposit_paid: deposit_paid ?? 0,
+          rent_paid: summaryAmounts.rent_paid,
+          water_paid: summaryAmounts.water_paid,
+          garbage_paid: summaryAmounts.garbage_paid,
+          security_paid: summaryAmounts.security_paid,
+          deposit_paid: summaryAmounts.deposit_paid,
           payment_method: payment_method ?? 'M-Pesa',
           reference_number: reference_number ?? null,
           notes: notes ?? null,
@@ -58,6 +88,47 @@ export async function POST(request: Request) {
 
     if (payErr) {
       return NextResponse.json({ error: payErr.message }, { status: 400 });
+    }
+
+    const { error: txErr } = await supabase.from('payment_transactions').insert({
+      payment_id: payment.id,
+      tenant_id,
+      apartment_id,
+      payment_month,
+      ...transactionAmounts,
+      transaction_date: payment_date ?? new Date().toISOString(),
+      payment_method: payment_method ?? 'M-Pesa',
+      reference_number: reference_number ?? null,
+      notes: notes ?? null,
+      mpesa_message: mpesa_message ?? null,
+      entry_mode: normalizedEntryMode,
+    });
+
+    if (txErr) {
+      return NextResponse.json({ error: txErr.message }, { status: 400 });
+    }
+
+    const hasArrearsAdjustment =
+      Object.prototype.hasOwnProperty.call(body, 'arrears_adjustment_amount') ||
+      Object.prototype.hasOwnProperty.call(body, 'arrears_adjustment_notes');
+
+    if (hasArrearsAdjustment) {
+      const { error: adjustmentErr } = await supabase
+        .from('tenant_balance_adjustments')
+        .upsert(
+          {
+            tenant_id,
+            apartment_id,
+            adjustment_month: payment_month,
+            amount: Number(arrears_adjustment_amount ?? 0),
+            notes: arrears_adjustment_notes ?? null,
+          },
+          { onConflict: 'tenant_id,adjustment_month' }
+        );
+
+      if (adjustmentErr) {
+        return NextResponse.json({ error: adjustmentErr.message }, { status: 400 });
+      }
     }
 
     // Fetch tenant for SMS
@@ -74,11 +145,11 @@ export async function POST(request: Request) {
       const message = buildConfirmationSMS({
         tenantName: tenant.full_name,
         month: monthLabel,
-        rent: rent_paid ?? 0,
-        water: water_paid ?? 0,
-        garbage: garbage_paid ?? 0,
-        security: security_paid ?? 0,
-        deposit: deposit_paid ?? 0,
+        rent: transactionAmounts.rent_paid,
+        water: transactionAmounts.water_paid,
+        garbage: transactionAmounts.garbage_paid,
+        security: transactionAmounts.security_paid,
+        deposit: transactionAmounts.deposit_paid,
         referenceNumber: reference_number ?? undefined,
       });
 

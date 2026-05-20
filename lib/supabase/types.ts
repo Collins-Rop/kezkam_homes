@@ -230,6 +230,133 @@ export interface Database {
           },
         ];
       };
+      payment_transactions: {
+        Row: {
+          id: string;
+          payment_id: string;
+          tenant_id: string;
+          apartment_id: string;
+          payment_month: string;
+          rent_paid: number;
+          water_paid: number;
+          garbage_paid: number;
+          security_paid: number;
+          deposit_paid: number;
+          total_paid: number;
+          transaction_date: string;
+          payment_method: string;
+          reference_number: string | null;
+          notes: string | null;
+          mpesa_message: string | null;
+          entry_mode: 'add_transaction' | 'replace_summary';
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          payment_id: string;
+          tenant_id: string;
+          apartment_id: string;
+          payment_month: string;
+          rent_paid?: number;
+          water_paid?: number;
+          garbage_paid?: number;
+          security_paid?: number;
+          deposit_paid?: number;
+          transaction_date?: string;
+          payment_method?: string;
+          reference_number?: string | null;
+          notes?: string | null;
+          mpesa_message?: string | null;
+          entry_mode?: 'add_transaction' | 'replace_summary';
+          created_at?: string;
+        };
+        Update: {
+          payment_id?: string;
+          tenant_id?: string;
+          apartment_id?: string;
+          payment_month?: string;
+          rent_paid?: number;
+          water_paid?: number;
+          garbage_paid?: number;
+          security_paid?: number;
+          deposit_paid?: number;
+          transaction_date?: string;
+          payment_method?: string;
+          reference_number?: string | null;
+          notes?: string | null;
+          mpesa_message?: string | null;
+          entry_mode?: 'add_transaction' | 'replace_summary';
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'payment_transactions_payment_id_fkey';
+            columns: ['payment_id'];
+            isOneToOne: false;
+            referencedRelation: 'payments';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'payment_transactions_tenant_id_fkey';
+            columns: ['tenant_id'];
+            isOneToOne: false;
+            referencedRelation: 'tenants';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'payment_transactions_apartment_id_fkey';
+            columns: ['apartment_id'];
+            isOneToOne: false;
+            referencedRelation: 'apartments';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      tenant_balance_adjustments: {
+        Row: {
+          id: string;
+          tenant_id: string;
+          apartment_id: string | null;
+          adjustment_month: string;
+          amount: number;
+          notes: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          tenant_id: string;
+          apartment_id?: string | null;
+          adjustment_month: string;
+          amount?: number;
+          notes?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          tenant_id?: string;
+          apartment_id?: string | null;
+          adjustment_month?: string;
+          amount?: number;
+          notes?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'tenant_balance_adjustments_tenant_id_fkey';
+            columns: ['tenant_id'];
+            isOneToOne: false;
+            referencedRelation: 'tenants';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'tenant_balance_adjustments_apartment_id_fkey';
+            columns: ['apartment_id'];
+            isOneToOne: false;
+            referencedRelation: 'apartments';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       sms_logs: {
         Row: {
           id: string;
@@ -332,6 +459,12 @@ export type TenantUpdate = Database['public']['Tables']['tenants']['Update'];
 
 export type Payment = Database['public']['Tables']['payments']['Row'];
 export type PaymentInsert = Database['public']['Tables']['payments']['Insert'];
+
+export type PaymentTransaction = Database['public']['Tables']['payment_transactions']['Row'];
+export type PaymentTransactionInsert = Database['public']['Tables']['payment_transactions']['Insert'];
+
+export type TenantBalanceAdjustment = Database['public']['Tables']['tenant_balance_adjustments']['Row'];
+export type TenantBalanceAdjustmentInsert = Database['public']['Tables']['tenant_balance_adjustments']['Insert'];
 
 export type SmsLog = Database['public']['Tables']['sms_logs']['Row'];
 export type SmsLogInsert = Database['public']['Tables']['sms_logs']['Insert'];

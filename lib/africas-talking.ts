@@ -18,6 +18,25 @@ export interface SMSResult {
   error?: string;
 }
 
+type SmsRecipient = {
+  number?: string;
+  status?: string;
+  messageId?: string;
+};
+
+type SmsSendResult = {
+  SMSMessageData?: {
+    Message?: string;
+    Recipients?: SmsRecipient[];
+  };
+};
+
+type ParsedSmsResult = {
+  successful: SmsRecipient[];
+  failed: SmsRecipient[];
+  error?: string;
+};
+
 function getSenderId(): string | undefined {
   const senderId = process.env.AT_SENDER_ID?.trim();
   if (!senderId) return undefined;
@@ -29,6 +48,44 @@ function getSenderId(): string | undefined {
   }
 
   return senderId;
+}
+
+function formatMessageIds(recipients: SmsRecipient[]): string | undefined {
+  const messageIds = recipients
+    .map((recipient) => recipient.messageId)
+    .filter(Boolean);
+
+  return messageIds.length ? messageIds.join(', ') : undefined;
+}
+
+function formatFailure(result: SmsSendResult): string {
+  const failed = result?.SMSMessageData?.Recipients?.filter(
+    (recipient) => recipient.status !== 'Success',
+  ) ?? [];
+
+  if (failed.length) {
+    return failed
+      .map((recipient) =>
+        `${recipient.number ?? 'unknown'}: ${recipient.status ?? 'Unknown error'}`,
+      )
+      .join('; ');
+  }
+
+  return result?.SMSMessageData?.Message ?? 'Unknown error';
+}
+
+async function sendAndParse(
+  sms: { send(options: Record<string, unknown>): Promise<SmsSendResult> },
+  options: Record<string, unknown>,
+): Promise<ParsedSmsResult> {
+  const result = await sms.send(options);
+  const recipients = result?.SMSMessageData?.Recipients ?? [];
+
+  return {
+    successful: recipients.filter((recipient) => recipient.status === 'Success'),
+    failed: recipients.filter((recipient) => recipient.status !== 'Success'),
+    error: formatFailure(result),
+  };
 }
 
 export async function sendSMS(to: string, message: string): Promise<SMSResult> {
@@ -56,44 +113,51 @@ export async function sendSMS(to: string, message: string): Promise<SMSResult> {
 
     const senderId = getSenderId();
     if (senderId) {
-      options.from = senderId;
+      options.senderId = senderId;
     }
 
-    const result = await sms.send(options);
-    const recipients = result?.SMSMessageData?.Recipients ?? [];
-    const successful = recipients.filter(
-      (recipient: { status?: string }) => recipient.status === 'Success',
-    );
-    const failed = recipients.filter(
-      (recipient: { status?: string }) => recipient.status !== 'Success',
-    );
+    const firstAttempt = await sendAndParse(sms, options);
+    let successful = firstAttempt.successful;
+    let failed = firstAttempt.failed;
+    let error = firstAttempt.error;
+
+    // Some Kenyan routes reject unapproved sender IDs carrier-by-carrier.
+    // Retry failed recipients through the default AT route before marking failed.
+    if (senderId && (failed.length > 0 || successful.length === 0)) {
+      const failedNumbers = failed
+        .map((recipient) => recipient.number)
+        .filter((number): number is string => Boolean(number));
+      const retryNumbers = failedNumbers.length > 0 ? failedNumbers : normalizedTo;
+
+      if (retryNumbers.length > 0) {
+        console.warn(
+          `[SMS] Sender ID route failed for ${retryNumbers.join(', ')}; retrying without sender ID`,
+        );
+
+        const fallbackAttempt = await sendAndParse(sms, {
+          to: retryNumbers,
+          message,
+        });
+
+        successful = [...successful, ...fallbackAttempt.successful];
+        failed = fallbackAttempt.failed;
+        error = failed.length
+          ? `Sender ID route failed (${firstAttempt.error}); fallback route failed (${fallbackAttempt.error})`
+          : undefined;
+      }
+    }
 
     if (successful.length > 0) {
       return {
         success: true,
-        messageId: successful
-          .map((recipient: { messageId?: string }) => recipient.messageId)
-          .filter(Boolean)
-          .join(', '),
-        error: failed.length
-          ? failed
-              .map((recipient: { number?: string; status?: string }) =>
-                `${recipient.number ?? 'unknown'}: ${recipient.status ?? 'Unknown error'}`,
-              )
-              .join('; ')
-          : undefined,
+        messageId: formatMessageIds(successful),
+        error,
       };
     }
 
     return {
       success: false,
-      error: failed.length
-        ? failed
-            .map((recipient: { number?: string; status?: string }) =>
-              `${recipient.number ?? 'unknown'}: ${recipient.status ?? 'Unknown error'}`,
-            )
-            .join('; ')
-        : result?.SMSMessageData?.Message ?? 'Unknown error',
+      error,
     };
   } catch (err) {
     const error = err instanceof Error ? err.message : 'SMS send failed';

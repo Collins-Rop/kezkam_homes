@@ -1,6 +1,4 @@
 -- Kezkam Homes - Initial Schema
--- Run this in your Supabase SQL Editor or via supabase db push
-
 -- ─────────────────────────────────────────────
 -- APARTMENTS
 -- ─────────────────────────────────────────────
