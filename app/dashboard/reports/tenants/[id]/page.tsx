@@ -83,8 +83,14 @@ export default async function TenantStatementPage({ params }: { params: { id: st
   );
   // Total paid excluding deposit (deposit is a one-time item, not monthly)
   const totalPaidMonthly = (payments ?? []).reduce(
-    (s, p) => s + p.rent_paid + p.water_paid + p.garbage_paid + p.security_paid,
-    0
+    (s, p) =>
+      s +
+      p.rent_paid +
+      p.water_paid +
+      p.garbage_paid +
+      p.security_paid +
+      (p.arrears_paid ?? 0),
+    0,
   );
   const totalExpectedToDate = allMonths.length * monthlyBill;
   // Net: positive = credit/advance, negative = arrears
@@ -219,6 +225,7 @@ export default async function TenantStatementPage({ params }: { params: { id: st
                     <th>Water</th>
                     <th>Garbage</th>
                     <th>Security</th>
+                    <th>Arrears</th>
                     <th>Deposit</th>
                     <th>Total</th>
                     <th>Method</th>
@@ -234,6 +241,9 @@ export default async function TenantStatementPage({ params }: { params: { id: st
                       <td style={{ color: 'var(--color-text-muted)' }}>{formatCurrency(p.water_paid)}</td>
                       <td style={{ color: 'var(--color-text-muted)' }}>{formatCurrency(p.garbage_paid)}</td>
                       <td style={{ color: 'var(--color-text-muted)' }}>{formatCurrency(p.security_paid)}</td>
+                      <td style={{ color: (p.arrears_paid ?? 0) ? 'var(--color-brand-light)' : 'var(--color-text-subtle)' }}>
+                        {(p.arrears_paid ?? 0) ? formatCurrency(p.arrears_paid ?? 0) : '—'}
+                      </td>
                       <td style={{ color: (p as { deposit_paid?: number }).deposit_paid ? 'var(--color-brand-light)' : 'var(--color-text-subtle)' }}>
                         {(p as { deposit_paid?: number }).deposit_paid
                           ? formatCurrency((p as { deposit_paid?: number }).deposit_paid!)

@@ -3,6 +3,14 @@ import { sendSMS, buildConfirmationSMS } from '@/lib/africas-talking';
 import { NextResponse } from 'next/server';
 import { format, parseISO } from 'date-fns';
 
+function parseMoney(value: unknown, fieldName: string, allowNegative = false) {
+  const amount = Number(value ?? 0);
+  if (!Number.isFinite(amount) || (!allowNegative && amount < 0)) {
+    throw new Error(`${fieldName} must be a valid ${allowNegative ? '' : 'non-negative '}number.`);
+  }
+  return amount;
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -15,6 +23,7 @@ export async function POST(request: Request) {
       garbage_paid,
       security_paid,
       deposit_paid,
+      arrears_paid,
       payment_date,
       payment_method,
       reference_number,
@@ -37,11 +46,12 @@ export async function POST(request: Request) {
     const normalizedEntryMode =
       entry_mode === 'add_transaction' ? 'add_transaction' : 'replace_summary';
     const transactionAmounts = {
-      rent_paid: Number(rent_paid ?? 0),
-      water_paid: Number(water_paid ?? 0),
-      garbage_paid: Number(garbage_paid ?? 0),
-      security_paid: Number(security_paid ?? 0),
-      deposit_paid: Number(deposit_paid ?? 0),
+      rent_paid: parseMoney(rent_paid, 'Rent paid'),
+      water_paid: parseMoney(water_paid, 'Water paid'),
+      garbage_paid: parseMoney(garbage_paid, 'Garbage paid'),
+      security_paid: parseMoney(security_paid, 'Security paid'),
+      deposit_paid: parseMoney(deposit_paid, 'Deposit paid'),
+      arrears_paid: parseMoney(arrears_paid, 'Arrears paid'),
     };
 
     const { data: existingPayment } = await supabase
@@ -59,6 +69,7 @@ export async function POST(request: Request) {
           garbage_paid: Number(existingPayment.garbage_paid ?? 0) + transactionAmounts.garbage_paid,
           security_paid: Number(existingPayment.security_paid ?? 0) + transactionAmounts.security_paid,
           deposit_paid: Number(existingPayment.deposit_paid ?? 0) + transactionAmounts.deposit_paid,
+          arrears_paid: Number(existingPayment.arrears_paid ?? 0) + transactionAmounts.arrears_paid,
         }
       : transactionAmounts;
 
@@ -75,6 +86,7 @@ export async function POST(request: Request) {
           garbage_paid: summaryAmounts.garbage_paid,
           security_paid: summaryAmounts.security_paid,
           deposit_paid: summaryAmounts.deposit_paid,
+          arrears_paid: summaryAmounts.arrears_paid,
           payment_method: payment_method ?? 'M-Pesa',
           reference_number: reference_number ?? null,
           notes: notes ?? null,
@@ -120,7 +132,7 @@ export async function POST(request: Request) {
             tenant_id,
             apartment_id,
             adjustment_month: payment_month,
-            amount: Number(arrears_adjustment_amount ?? 0),
+            amount: parseMoney(arrears_adjustment_amount, 'Arrears adjustment', true),
             notes: arrears_adjustment_notes ?? null,
           },
           { onConflict: 'tenant_id,adjustment_month' }
@@ -149,6 +161,7 @@ export async function POST(request: Request) {
         water: transactionAmounts.water_paid,
         garbage: transactionAmounts.garbage_paid,
         security: transactionAmounts.security_paid,
+        arrears: transactionAmounts.arrears_paid,
         deposit: transactionAmounts.deposit_paid,
         referenceNumber: reference_number ?? undefined,
       });

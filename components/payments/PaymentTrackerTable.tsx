@@ -542,6 +542,7 @@ export default function PaymentTrackerTable({
           apartments={apartments}
           selectedMonth={selectedMonth}
           adjustments={adjustments}
+          balances={balances}
           prefilledTenantId={recordingFor}
           isOpen={true}
           onClose={() => setRecordingFor(null)}
@@ -556,6 +557,7 @@ export default function PaymentTrackerTable({
           existingPayment={editingPayment}
           existingAdjustment={adjustments.find((a) => a.tenant_id === editingPayment.tenant_id) ?? null}
           adjustments={adjustments}
+          balances={balances}
           isOpen={true}
           onClose={() => setEditingPayment(null)}
         />

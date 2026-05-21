@@ -80,7 +80,8 @@ export default async function PaymentsPage({ searchParams }: Props) {
         payment.rent_paid +
         payment.water_paid +
         payment.garbage_paid +
-        payment.security_paid,
+        payment.security_paid +
+        (payment.arrears_paid ?? 0),
       0,
     );
     const priorAdjustments = (previousAdjustmentsByTenant.get(tenant.id) ?? []).reduce(
@@ -94,7 +95,8 @@ export default async function PaymentsPage({ searchParams }: Props) {
       ? currentPayment.rent_paid +
         currentPayment.water_paid +
         currentPayment.garbage_paid +
-        currentPayment.security_paid
+        currentPayment.security_paid +
+        (currentPayment.arrears_paid ?? 0)
       : 0;
 
     balances[tenant.id] = {
@@ -121,6 +123,7 @@ export default async function PaymentsPage({ searchParams }: Props) {
           apartments={apartments ?? []}
           selectedMonth={selectedMonth}
           adjustments={(monthAdjustments as TenantBalanceAdjustment[]) ?? []}
+          balances={balances}
         />
       </div>
 

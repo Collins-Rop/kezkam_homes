@@ -173,6 +173,7 @@ export interface Database {
           garbage_paid: number;
           security_paid: number;
           deposit_paid: number;
+          arrears_paid: number;
           total_paid: number;
           payment_date: string;
           payment_method: string;
@@ -192,6 +193,7 @@ export interface Database {
           garbage_paid?: number;
           security_paid?: number;
           deposit_paid?: number;
+          arrears_paid?: number;
           payment_date?: string;
           payment_method?: string;
           reference_number?: string | null;
@@ -206,6 +208,7 @@ export interface Database {
           garbage_paid?: number;
           security_paid?: number;
           deposit_paid?: number;
+          arrears_paid?: number;
           payment_date?: string;
           payment_method?: string;
           reference_number?: string | null;
@@ -242,6 +245,7 @@ export interface Database {
           garbage_paid: number;
           security_paid: number;
           deposit_paid: number;
+          arrears_paid: number;
           total_paid: number;
           transaction_date: string;
           payment_method: string;
@@ -262,6 +266,7 @@ export interface Database {
           garbage_paid?: number;
           security_paid?: number;
           deposit_paid?: number;
+          arrears_paid?: number;
           transaction_date?: string;
           payment_method?: string;
           reference_number?: string | null;
@@ -280,6 +285,7 @@ export interface Database {
           garbage_paid?: number;
           security_paid?: number;
           deposit_paid?: number;
+          arrears_paid?: number;
           transaction_date?: string;
           payment_method?: string;
           reference_number?: string | null;

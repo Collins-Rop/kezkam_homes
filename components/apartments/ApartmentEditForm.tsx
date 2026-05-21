@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import type { Apartment, Tenant, TenantBalanceAdjustment, UnitType } from '@/lib/supabase/types';
@@ -24,7 +24,10 @@ export default function ApartmentEditForm({
 }: Props) {
   const router = useRouter();
   const supabase = createClient();
-  const adjustmentByTenant = new Map(balanceAdjustments.map((a) => [a.tenant_id, a]));
+  const adjustmentByTenant = useMemo(
+    () => new Map(balanceAdjustments.map((a) => [a.tenant_id, a])),
+    [balanceAdjustments],
+  );
 
   const [form, setForm] = useState({
     name: apartment.name,
@@ -51,6 +54,23 @@ export default function ApartmentEditForm({
       }),
     ) as Record<string, { amount: string; notes: string }>,
   );
+
+  useEffect(() => {
+    setArrearsForm(
+      Object.fromEntries(
+        activeTenants.map((tenant) => {
+          const adjustment = adjustmentByTenant.get(tenant.id);
+          return [
+            tenant.id,
+            {
+              amount: adjustment ? String(adjustment.amount ?? '') : '',
+              notes: adjustment?.notes ?? '',
+            },
+          ];
+        }),
+      ) as Record<string, { amount: string; notes: string }>,
+    );
+  }, [activeTenants, adjustmentByTenant]);
 
   const [loading, setLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -89,9 +109,12 @@ export default function ApartmentEditForm({
     if (!adjustmentMonth) return;
 
     for (const tenant of activeTenants) {
-      if (!arrearsChanged(tenant.id)) continue;
-
       const draft = arrearsForm[tenant.id] ?? { amount: '', notes: '' };
+      const existingAdjustment = adjustmentByTenant.get(tenant.id);
+      const hasDraft = draft.amount.trim() !== '' || draft.notes.trim() !== '';
+
+      if (!arrearsChanged(tenant.id) && !hasDraft && !existingAdjustment) continue;
+
       const parsedAmount = parseFloat(draft.amount);
       const amount = Number.isFinite(parsedAmount) ? parsedAmount : 0;
       const res = await fetch('/api/tenant-balance-adjustments', {
