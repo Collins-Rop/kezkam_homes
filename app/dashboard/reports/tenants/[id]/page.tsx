@@ -15,7 +15,6 @@ export default async function TenantStatementPage({ params }: { params: { id: st
     { data: tenant },
     { data: payments },
     { data: paymentTransactions },
-    { data: balanceAdjustments },
     { data: notices },
   ] = await Promise.all([
     supabase
@@ -33,11 +32,6 @@ export default async function TenantStatementPage({ params }: { params: { id: st
       .select('*')
       .eq('tenant_id', params.id)
       .order('transaction_date', { ascending: true }),
-    supabase
-      .from('tenant_balance_adjustments')
-      .select('*')
-      .eq('tenant_id', params.id)
-      .order('adjustment_month', { ascending: true }),
     supabase
       .from('notices')
       .select('*')
@@ -77,24 +71,14 @@ export default async function TenantStatementPage({ params }: { params: { id: st
     ? Number(apt.rent_amount) + Number(apt.water_bill) + Number(apt.garbage_bill) + Number(apt.security_bill ?? 0)
     : 0;
   const arrearsAmount = outstandingMonths.length * monthlyBill;
-  const manualAdjustmentsTotal = (balanceAdjustments ?? []).reduce(
-    (s, adjustment) => s + Number(adjustment.amount ?? 0),
-    0,
-  );
   // Total paid excluding deposit (deposit is a one-time item, not monthly)
   const totalPaidMonthly = (payments ?? []).reduce(
-    (s, p) =>
-      s +
-      p.rent_paid +
-      p.water_paid +
-      p.garbage_paid +
-      p.security_paid +
-      (p.arrears_paid ?? 0),
-    0,
+    (s, p) => s + p.rent_paid + p.water_paid + p.garbage_paid + p.security_paid,
+    0
   );
   const totalExpectedToDate = allMonths.length * monthlyBill;
   // Net: positive = credit/advance, negative = arrears
-  const netBalance = totalPaidMonthly - totalExpectedToDate - manualAdjustmentsTotal;
+  const netBalance = totalPaidMonthly - totalExpectedToDate;
 
   const activeNotice = notices?.[0] ?? null;
   const generatedDate = format(now, 'dd MMM yyyy HH:mm');
@@ -225,7 +209,6 @@ export default async function TenantStatementPage({ params }: { params: { id: st
                     <th>Water</th>
                     <th>Garbage</th>
                     <th>Security</th>
-                    <th>Arrears</th>
                     <th>Deposit</th>
                     <th>Total</th>
                     <th>Method</th>
@@ -241,9 +224,6 @@ export default async function TenantStatementPage({ params }: { params: { id: st
                       <td style={{ color: 'var(--color-text-muted)' }}>{formatCurrency(p.water_paid)}</td>
                       <td style={{ color: 'var(--color-text-muted)' }}>{formatCurrency(p.garbage_paid)}</td>
                       <td style={{ color: 'var(--color-text-muted)' }}>{formatCurrency(p.security_paid)}</td>
-                      <td style={{ color: (p.arrears_paid ?? 0) ? 'var(--color-brand-light)' : 'var(--color-text-subtle)' }}>
-                        {(p.arrears_paid ?? 0) ? formatCurrency(p.arrears_paid ?? 0) : '—'}
-                      </td>
                       <td style={{ color: (p as { deposit_paid?: number }).deposit_paid ? 'var(--color-brand-light)' : 'var(--color-text-subtle)' }}>
                         {(p as { deposit_paid?: number }).deposit_paid
                           ? formatCurrency((p as { deposit_paid?: number }).deposit_paid!)
@@ -302,18 +282,6 @@ export default async function TenantStatementPage({ params }: { params: { id: st
                 </tbody>
               </table>
             </div>
-          </div>
-        )}
-
-        {manualAdjustmentsTotal !== 0 && (
-          <div
-            className="p-4 rounded-xl text-sm"
-            style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.22)' }}
-          >
-            <span className="font-medium" style={{ color: '#b45309' }}>Manual balance adjustments: </span>
-            <span style={{ color: 'var(--color-text-muted)' }}>
-              {manualAdjustmentsTotal > 0 ? 'Added arrears' : 'Added credit'} of {formatCurrency(Math.abs(manualAdjustmentsTotal))}
-            </span>
           </div>
         )}
 

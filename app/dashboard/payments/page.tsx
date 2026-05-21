@@ -3,8 +3,8 @@ import { formatMonth, currentMonthISO } from '@/lib/utils';
 import RecordPaymentModal from '@/components/payments/RecordPaymentModal';
 import PaymentTrackerTable, { type TenantBalance } from '@/components/payments/PaymentTrackerTable';
 import PaymentFilters from '@/components/payments/PaymentFilters';
-import type { Apartment, Tenant, Payment, TenantBalanceAdjustment } from '@/lib/supabase/types';
-import { differenceInCalendarMonths, parseISO, startOfMonth } from 'date-fns';
+import type { Apartment, Tenant, Payment } from '@/lib/supabase/types';
+import { parseISO, startOfMonth } from 'date-fns';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,10 +19,7 @@ export default async function PaymentsPage({ searchParams }: Props) {
   const [
     { data: tenantsRaw },
     { data: monthPayments },
-    { data: previousPayments },
     { data: apartments },
-    { data: monthAdjustments },
-    { data: previousAdjustments },
   ] =
     await Promise.all([
       supabase
@@ -31,10 +28,7 @@ export default async function PaymentsPage({ searchParams }: Props) {
         .eq('is_active', true)
         .order('full_name'),
       supabase.from('payments').select('*').eq('payment_month', selectedMonth),
-      supabase.from('payments').select('*').lt('payment_month', selectedMonth),
       supabase.from('apartments').select('id, name').order('name'),
-      supabase.from('tenant_balance_adjustments').select('*').eq('adjustment_month', selectedMonth),
-      supabase.from('tenant_balance_adjustments').select('*').lt('adjustment_month', selectedMonth),
     ]);
 
   // Filter by apartment if requested
@@ -43,25 +37,6 @@ export default async function PaymentsPage({ searchParams }: Props) {
     : tenantsRaw;
 
   const monthPaymentMap = new Map((monthPayments ?? []).map((p) => [p.tenant_id, p]));
-  const previousPaymentsByTenant = new Map<string, Payment[]>();
-  for (const payment of (previousPayments as Payment[]) ?? []) {
-    const existing = previousPaymentsByTenant.get(payment.tenant_id) ?? [];
-    existing.push(payment);
-    previousPaymentsByTenant.set(payment.tenant_id, existing);
-  }
-  const monthAdjustmentMap = new Map(
-    ((monthAdjustments as TenantBalanceAdjustment[]) ?? []).map((adjustment) => [
-      adjustment.tenant_id,
-      adjustment,
-    ]),
-  );
-  const previousAdjustmentsByTenant = new Map<string, TenantBalanceAdjustment[]>();
-  for (const adjustment of (previousAdjustments as TenantBalanceAdjustment[]) ?? []) {
-    const existing = previousAdjustmentsByTenant.get(adjustment.tenant_id) ?? [];
-    existing.push(adjustment);
-    previousAdjustmentsByTenant.set(adjustment.tenant_id, existing);
-  }
-
   const balances: Record<string, TenantBalance> = {};
   const selectedMonthStart = startOfMonth(parseISO(selectedMonth));
   for (const tenant of (tenantsRaw ?? []) as (Tenant & { apartments: Apartment | null })[]) {
@@ -72,39 +47,18 @@ export default async function PaymentsPage({ searchParams }: Props) {
       apt.rent_amount + apt.water_bill + apt.garbage_bill + (apt.security_bill ?? 0);
     const moveInMonth = startOfMonth(parseISO(tenant.move_in_date));
     const currentExpected = selectedMonthStart >= moveInMonth ? monthlyBill : 0;
-    const priorMonths = Math.max(0, differenceInCalendarMonths(selectedMonthStart, moveInMonth));
-    const priorExpected = priorMonths * monthlyBill;
-    const priorPaid = (previousPaymentsByTenant.get(tenant.id) ?? []).reduce(
-      (sum, payment) =>
-        sum +
-        payment.rent_paid +
-        payment.water_paid +
-        payment.garbage_paid +
-        payment.security_paid +
-        (payment.arrears_paid ?? 0),
-      0,
-    );
-    const priorAdjustments = (previousAdjustmentsByTenant.get(tenant.id) ?? []).reduce(
-      (sum, adjustment) => sum + Number(adjustment.amount ?? 0),
-      0,
-    );
-    const carriedBalance = priorExpected + priorAdjustments - priorPaid;
-    const currentAdjustment = Number(monthAdjustmentMap.get(tenant.id)?.amount ?? 0);
     const currentPayment = monthPaymentMap.get(tenant.id);
     const currentPaid = currentPayment
       ? currentPayment.rent_paid +
         currentPayment.water_paid +
         currentPayment.garbage_paid +
-        currentPayment.security_paid +
-        (currentPayment.arrears_paid ?? 0)
+        currentPayment.security_paid
       : 0;
 
     balances[tenant.id] = {
-      carriedBalance,
-      currentAdjustment,
-      currentDue: currentExpected + carriedBalance + currentAdjustment,
+      currentDue: currentExpected,
       currentPaid,
-      endingBalance: currentExpected + carriedBalance + currentAdjustment - currentPaid,
+      endingBalance: currentExpected - currentPaid,
     };
   }
 
@@ -122,8 +76,6 @@ export default async function PaymentsPage({ searchParams }: Props) {
           tenants={(tenantsRaw as (Tenant & { apartments: unknown })[]) ?? []}
           apartments={apartments ?? []}
           selectedMonth={selectedMonth}
-          adjustments={(monthAdjustments as TenantBalanceAdjustment[]) ?? []}
-          balances={balances}
         />
       </div>
 
@@ -142,7 +94,6 @@ export default async function PaymentsPage({ searchParams }: Props) {
         allTenants={(tenantsRaw as (Tenant & { apartments: unknown })[]) ?? []}
         apartments={apartments ?? []}
         balances={balances}
-        adjustments={(monthAdjustments as TenantBalanceAdjustment[]) ?? []}
       />
     </div>
   );

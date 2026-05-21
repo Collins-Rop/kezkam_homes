@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import RecordPaymentModal from './RecordPaymentModal';
-import type { Tenant, Apartment, Payment, TenantBalanceAdjustment } from '@/lib/supabase/types';
+import type { Tenant, Apartment, Payment } from '@/lib/supabase/types';
 import { FLOOR_OPTIONS } from '@/lib/supabase/types';
 
 const FLOOR_ORDER = FLOOR_OPTIONS.map((f) => f.value);
@@ -43,12 +43,9 @@ interface Props {
   allTenants: (Tenant & { apartments: unknown })[];
   apartments: Pick<Apartment, 'id' | 'name'>[];
   balances: Record<string, TenantBalance>;
-  adjustments: TenantBalanceAdjustment[];
 }
 
 export interface TenantBalance {
-  carriedBalance: number;
-  currentAdjustment: number;
   currentDue: number;
   currentPaid: number;
   endingBalance: number;
@@ -79,7 +76,6 @@ export default function PaymentTrackerTable({
   allTenants,
   apartments,
   balances,
-  adjustments,
 }: Props) {
   const [search, setSearch] = useState('');
   const [collapsedBuildings, setCollapsedBuildings] = useState<Set<string>>(new Set());
@@ -541,8 +537,6 @@ export default function PaymentTrackerTable({
           tenants={allTenants}
           apartments={apartments}
           selectedMonth={selectedMonth}
-          adjustments={adjustments}
-          balances={balances}
           prefilledTenantId={recordingFor}
           isOpen={true}
           onClose={() => setRecordingFor(null)}
@@ -555,9 +549,6 @@ export default function PaymentTrackerTable({
           apartments={apartments}
           selectedMonth={selectedMonth}
           existingPayment={editingPayment}
-          existingAdjustment={adjustments.find((a) => a.tenant_id === editingPayment.tenant_id) ?? null}
-          adjustments={adjustments}
-          balances={balances}
           isOpen={true}
           onClose={() => setEditingPayment(null)}
         />
@@ -673,26 +664,6 @@ function AptBlock({
                   <p className="text-xs truncate" style={{ color: 'var(--color-text-subtle)' }}>
                     {tenant.phone_number}
                   </p>
-                  {balance && balance.carriedBalance !== 0 && (
-                    <p
-                      className="text-xs mt-0.5"
-                      style={{ color: balance.carriedBalance > 0 ? '#b91c1c' : '#15803d' }}
-                    >
-                      {balance.carriedBalance > 0
-                        ? `Previous arrears ${formatCurrency(balance.carriedBalance)}`
-                        : `Previous overpayment ${formatCurrency(Math.abs(balance.carriedBalance))}`}
-                    </p>
-                  )}
-                  {balance && balance.currentAdjustment !== 0 && (
-                    <p
-                      className="text-xs mt-0.5"
-                      style={{ color: balance.currentAdjustment > 0 ? '#b45309' : '#15803d' }}
-                    >
-                      {balance.currentAdjustment > 0
-                        ? `Manual arrears ${formatCurrency(balance.currentAdjustment)}`
-                        : `Manual credit ${formatCurrency(Math.abs(balance.currentAdjustment))}`}
-                    </p>
-                  )}
                 </div>
                 <div className="text-right hidden sm:block">
                   {payment ? (

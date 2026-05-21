@@ -1,33 +1,20 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import type { Apartment, Tenant, TenantBalanceAdjustment, UnitType } from '@/lib/supabase/types';
+import type { Apartment, UnitType } from '@/lib/supabase/types';
 import { FLOOR_OPTIONS, UNIT_TYPE_LABELS } from '@/lib/supabase/types';
 import { Pencil, Trash2 } from 'lucide-react';
 
 interface Props {
   apartment: Apartment;
   buildingId: string;
-  activeTenants?: Tenant[];
-  balanceAdjustments?: TenantBalanceAdjustment[];
-  adjustmentMonth?: string;
 }
 
-export default function ApartmentEditForm({
-  apartment,
-  buildingId,
-  activeTenants = [],
-  balanceAdjustments = [],
-  adjustmentMonth,
-}: Props) {
+export default function ApartmentEditForm({ apartment, buildingId }: Props) {
   const router = useRouter();
   const supabase = createClient();
-  const adjustmentByTenant = useMemo(
-    () => new Map(balanceAdjustments.map((a) => [a.tenant_id, a])),
-    [balanceAdjustments],
-  );
 
   const [form, setForm] = useState({
     name: apartment.name,
@@ -40,37 +27,6 @@ export default function ApartmentEditForm({
     security_bill: String(apartment.security_bill ?? 0),
     is_occupied: apartment.is_occupied,
   });
-  const [arrearsForm, setArrearsForm] = useState(() =>
-    Object.fromEntries(
-      activeTenants.map((tenant) => {
-        const adjustment = adjustmentByTenant.get(tenant.id);
-        return [
-          tenant.id,
-          {
-            amount: adjustment ? String(adjustment.amount ?? '') : '',
-            notes: adjustment?.notes ?? '',
-          },
-        ];
-      }),
-    ) as Record<string, { amount: string; notes: string }>,
-  );
-
-  useEffect(() => {
-    setArrearsForm(
-      Object.fromEntries(
-        activeTenants.map((tenant) => {
-          const adjustment = adjustmentByTenant.get(tenant.id);
-          return [
-            tenant.id,
-            {
-              amount: adjustment ? String(adjustment.amount ?? '') : '',
-              notes: adjustment?.notes ?? '',
-            },
-          ];
-        }),
-      ) as Record<string, { amount: string; notes: string }>,
-    );
-  }, [activeTenants, adjustmentByTenant]);
 
   const [loading, setLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -83,56 +39,6 @@ export default function ApartmentEditForm({
   ) {
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
     setSuccess(false);
-  }
-
-  function handleArrearsChange(tenantId: string, field: 'amount' | 'notes', value: string) {
-    setArrearsForm((current) => ({
-      ...current,
-      [tenantId]: {
-        amount: current[tenantId]?.amount ?? '',
-        notes: current[tenantId]?.notes ?? '',
-        [field]: value,
-      },
-    }));
-    setSuccess(false);
-  }
-
-  function arrearsChanged(tenantId: string) {
-    const draft = arrearsForm[tenantId] ?? { amount: '', notes: '' };
-    const adjustment = adjustmentByTenant.get(tenantId);
-    const currentAmount = adjustment ? String(adjustment.amount ?? '') : '';
-    const currentNotes = adjustment?.notes ?? '';
-    return draft.amount !== currentAmount || draft.notes !== currentNotes;
-  }
-
-  async function saveCarryForwardArrears() {
-    if (!adjustmentMonth) return;
-
-    for (const tenant of activeTenants) {
-      const draft = arrearsForm[tenant.id] ?? { amount: '', notes: '' };
-      const existingAdjustment = adjustmentByTenant.get(tenant.id);
-      const hasDraft = draft.amount.trim() !== '' || draft.notes.trim() !== '';
-
-      if (!arrearsChanged(tenant.id) && !hasDraft && !existingAdjustment) continue;
-
-      const parsedAmount = parseFloat(draft.amount);
-      const amount = Number.isFinite(parsedAmount) ? parsedAmount : 0;
-      const res = await fetch('/api/tenant-balance-adjustments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tenant_id: tenant.id,
-          apartment_id: apartment.id,
-          adjustment_month: adjustmentMonth,
-          amount,
-          notes: draft.notes.trim() || null,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error ?? `Failed to save carry-forward arrears for ${tenant.full_name}.`);
-      }
-    }
   }
 
   async function handleSave(e: React.FormEvent) {
@@ -156,19 +62,8 @@ export default function ApartmentEditForm({
       })
       .eq('id', apartment.id);
 
-    if (err) {
-      setError(err.message);
-      setLoading(false);
-      return;
-    }
-
-    try {
-      await saveCarryForwardArrears();
-      setSuccess(true);
-      router.refresh();
-    } catch (arrearsErr) {
-      setError(arrearsErr instanceof Error ? arrearsErr.message : 'Failed to save carry-forward arrears.');
-    }
+    if (err) { setError(err.message); }
+    else { setSuccess(true); router.refresh(); }
     setLoading(false);
   }
 
@@ -246,56 +141,6 @@ export default function ApartmentEditForm({
           <label className="label">Security Bill (KES)</label>
           <input className="input" name="security_bill" type="number" min="0" value={form.security_bill} onChange={handleChange} />
         </div>
-
-        {activeTenants.length > 0 && (
-          <div
-            className="space-y-3 rounded-xl p-3"
-            style={{
-              background: 'rgba(245,158,11,0.07)',
-              border: '1px solid rgba(245,158,11,0.25)',
-            }}
-          >
-            <div>
-              <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>
-                Carry-forward arrears
-              </h3>
-              <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
-                Add arrears or credit for the active tenant before updating payments.
-              </p>
-            </div>
-            {activeTenants.map((tenant) => {
-              const draft = arrearsForm[tenant.id] ?? { amount: '', notes: '' };
-              return (
-                <div key={tenant.id} className="space-y-2">
-                  <p className="text-xs font-medium" style={{ color: 'var(--color-text)' }}>
-                    {tenant.full_name}
-                  </p>
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <div>
-                      <label className="label">Arrears (KES)</label>
-                      <input
-                        className="input"
-                        type="number"
-                        value={draft.amount}
-                        onChange={(e) => handleArrearsChange(tenant.id, 'amount', e.target.value)}
-                        placeholder="0"
-                      />
-                    </div>
-                    <div>
-                      <label className="label">Notes</label>
-                      <input
-                        className="input"
-                        value={draft.notes}
-                        onChange={(e) => handleArrearsChange(tenant.id, 'notes', e.target.value)}
-                        placeholder="e.g. Opening balance"
-                      />
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
 
         <div
           className="flex justify-between text-sm py-2 px-3 rounded-lg"

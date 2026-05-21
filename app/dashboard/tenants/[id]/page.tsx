@@ -18,7 +18,6 @@ export default async function TenantDetailPage({ params }: { params: { id: strin
     { data: tenant },
     { data: payments },
     { data: paymentTransactions },
-    { data: balanceAdjustments },
     { data: smsLogs },
     { data: notices },
   ] =
@@ -38,11 +37,6 @@ export default async function TenantDetailPage({ params }: { params: { id: strin
         .select('*')
         .eq('tenant_id', params.id)
         .order('transaction_date', { ascending: false }),
-      supabase
-        .from('tenant_balance_adjustments')
-        .select('*')
-        .eq('tenant_id', params.id)
-        .order('adjustment_month', { ascending: true }),
       supabase
         .from('sms_logs')
         .select('*')
@@ -80,22 +74,11 @@ export default async function TenantDetailPage({ params }: { params: { id: strin
     ? Number(apt.rent_amount) + Number(apt.water_bill) + Number(apt.garbage_bill) + Number(apt.security_bill ?? 0)
     : 0;
   const arrearsAmount = outstandingMonths.length * monthlyBill;
-  const manualAdjustmentsTotal = (balanceAdjustments ?? []).reduce(
-    (s, adjustment) => s + Number(adjustment.amount ?? 0),
-    0,
-  );
   const totalPaidMonthly = (payments ?? []).reduce(
-    (s, p) =>
-      s +
-      p.rent_paid +
-      p.water_paid +
-      p.garbage_paid +
-      p.security_paid +
-      (p.arrears_paid ?? 0),
-    0,
+    (s, p) => s + p.rent_paid + p.water_paid + p.garbage_paid + p.security_paid, 0
   );
   const totalExpectedToDate = allMonths.length * monthlyBill;
-  const netBalance = totalPaidMonthly - totalExpectedToDate - manualAdjustmentsTotal;
+  const netBalance = totalPaidMonthly - totalExpectedToDate;
   const currentMonthStr = format(startOfMonth(now), 'yyyy-MM');
   const advanceMonths = (payments ?? []).filter(
     (p) => p.payment_month.slice(0, 7) > currentMonthStr
@@ -179,7 +162,6 @@ export default async function TenantDetailPage({ params }: { params: { id: strin
                     <th>Rent</th>
                     <th>Water</th>
                     <th>Garbage</th>
-                    <th>Arrears</th>
                     <th>Deposit</th>
                     <th>Method</th>
                     <th className="text-right">Total</th>
@@ -195,9 +177,6 @@ export default async function TenantDetailPage({ params }: { params: { id: strin
                       <td style={{ color: 'var(--color-text-muted)' }}>{formatCurrency(p.rent_paid)}</td>
                       <td style={{ color: 'var(--color-text-muted)' }}>{formatCurrency(p.water_paid)}</td>
                       <td style={{ color: 'var(--color-text-muted)' }}>{formatCurrency(p.garbage_paid)}</td>
-                      <td style={{ color: (p.arrears_paid ?? 0) ? 'var(--color-brand-light)' : 'var(--color-text-subtle)' }}>
-                        {formatCurrency(p.arrears_paid ?? 0)}
-                      </td>
                       <td style={{ color: (p as { deposit_paid?: number }).deposit_paid ? 'var(--color-brand-light)' : 'var(--color-text-subtle)' }}>
                         {formatCurrency((p as { deposit_paid?: number }).deposit_paid ?? 0)}
                       </td>
@@ -336,16 +315,6 @@ export default async function TenantDetailPage({ params }: { params: { id: strin
                 <div className="flex justify-between" style={{ borderTop: '1px solid var(--color-border)', paddingTop: '0.5rem' }}>
                   <span style={{ color: 'var(--color-text-muted)' }}>Monthly bill</span>
                   <span>{formatCurrency(monthlyBill)}</span>
-                </div>
-              )}
-              {manualAdjustmentsTotal !== 0 && (
-                <div className="flex justify-between">
-                  <span style={{ color: manualAdjustmentsTotal > 0 ? '#b45309' : '#15803d' }}>
-                    Manual {manualAdjustmentsTotal > 0 ? 'arrears' : 'credit'}
-                  </span>
-                  <span style={{ color: manualAdjustmentsTotal > 0 ? '#b45309' : '#15803d' }}>
-                    {formatCurrency(Math.abs(manualAdjustmentsTotal))}
-                  </span>
                 </div>
               )}
               <div

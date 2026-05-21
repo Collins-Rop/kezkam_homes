@@ -173,7 +173,6 @@ export interface Database {
           garbage_paid: number;
           security_paid: number;
           deposit_paid: number;
-          arrears_paid: number;
           total_paid: number;
           payment_date: string;
           payment_method: string;
@@ -193,7 +192,6 @@ export interface Database {
           garbage_paid?: number;
           security_paid?: number;
           deposit_paid?: number;
-          arrears_paid?: number;
           payment_date?: string;
           payment_method?: string;
           reference_number?: string | null;
@@ -208,7 +206,6 @@ export interface Database {
           garbage_paid?: number;
           security_paid?: number;
           deposit_paid?: number;
-          arrears_paid?: number;
           payment_date?: string;
           payment_method?: string;
           reference_number?: string | null;
@@ -245,7 +242,6 @@ export interface Database {
           garbage_paid: number;
           security_paid: number;
           deposit_paid: number;
-          arrears_paid: number;
           total_paid: number;
           transaction_date: string;
           payment_method: string;
@@ -266,7 +262,6 @@ export interface Database {
           garbage_paid?: number;
           security_paid?: number;
           deposit_paid?: number;
-          arrears_paid?: number;
           transaction_date?: string;
           payment_method?: string;
           reference_number?: string | null;
@@ -285,7 +280,6 @@ export interface Database {
           garbage_paid?: number;
           security_paid?: number;
           deposit_paid?: number;
-          arrears_paid?: number;
           transaction_date?: string;
           payment_method?: string;
           reference_number?: string | null;
@@ -310,52 +304,6 @@ export interface Database {
           },
           {
             foreignKeyName: 'payment_transactions_apartment_id_fkey';
-            columns: ['apartment_id'];
-            isOneToOne: false;
-            referencedRelation: 'apartments';
-            referencedColumns: ['id'];
-          },
-        ];
-      };
-      tenant_balance_adjustments: {
-        Row: {
-          id: string;
-          tenant_id: string;
-          apartment_id: string | null;
-          adjustment_month: string;
-          amount: number;
-          notes: string | null;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          id?: string;
-          tenant_id: string;
-          apartment_id?: string | null;
-          adjustment_month: string;
-          amount?: number;
-          notes?: string | null;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: {
-          tenant_id?: string;
-          apartment_id?: string | null;
-          adjustment_month?: string;
-          amount?: number;
-          notes?: string | null;
-          updated_at?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: 'tenant_balance_adjustments_tenant_id_fkey';
-            columns: ['tenant_id'];
-            isOneToOne: false;
-            referencedRelation: 'tenants';
-            referencedColumns: ['id'];
-          },
-          {
-            foreignKeyName: 'tenant_balance_adjustments_apartment_id_fkey';
             columns: ['apartment_id'];
             isOneToOne: false;
             referencedRelation: 'apartments';
@@ -468,9 +416,6 @@ export type PaymentInsert = Database['public']['Tables']['payments']['Insert'];
 
 export type PaymentTransaction = Database['public']['Tables']['payment_transactions']['Row'];
 export type PaymentTransactionInsert = Database['public']['Tables']['payment_transactions']['Insert'];
-
-export type TenantBalanceAdjustment = Database['public']['Tables']['tenant_balance_adjustments']['Row'];
-export type TenantBalanceAdjustmentInsert = Database['public']['Tables']['tenant_balance_adjustments']['Insert'];
 
 export type SmsLog = Database['public']['Tables']['sms_logs']['Row'];
 export type SmsLogInsert = Database['public']['Tables']['sms_logs']['Insert'];

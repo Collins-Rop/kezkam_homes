@@ -19,13 +19,7 @@ export default async function UnitDetailPage({
 }) {
   const supabase = createClient();
 
-  const [
-    { data: building },
-    { data: apt },
-    { data: tenants },
-    { data: payments },
-    { data: balanceAdjustments },
-  ] =
+  const [{ data: building }, { data: apt }, { data: tenants }, { data: payments }] =
     await Promise.all([
       supabase.from('buildings').select('id, name').eq('id', params.id).single(),
       supabase.from('apartments').select('*').eq('id', params.unitId).single(),
@@ -40,11 +34,6 @@ export default async function UnitDetailPage({
         .eq('apartment_id', params.unitId)
         .order('payment_month', { ascending: false })
         .limit(12),
-      supabase
-        .from('tenant_balance_adjustments')
-        .select('*')
-        .eq('apartment_id', params.unitId)
-        .eq('adjustment_month', currentMonthISO()),
     ]);
 
   if (!apt || !building) notFound();
@@ -226,13 +215,7 @@ export default async function UnitDetailPage({
 
         {/* Right — edit form */}
         <div>
-          <ApartmentEditForm
-            apartment={apt}
-            buildingId={building.id}
-            activeTenants={activeTenants}
-            balanceAdjustments={balanceAdjustments ?? []}
-            adjustmentMonth={thisMonth}
-          />
+          <ApartmentEditForm apartment={apt} buildingId={building.id} />
         </div>
       </div>
     </div>

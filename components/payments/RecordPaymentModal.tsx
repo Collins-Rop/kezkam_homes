@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Plus, X, CreditCard, MessageCircle, Zap, ChevronDown, ChevronUp } from 'lucide-react';
 import { monthOptions, formatCurrency } from '@/lib/utils';
 import { format, addMonths, parseISO } from 'date-fns';
-import type { Tenant, Apartment, Payment, TenantBalanceAdjustment } from '@/lib/supabase/types';
+import type { Tenant, Apartment, Payment } from '@/lib/supabase/types';
 
 interface Props {
   tenants: (Tenant & { apartments: unknown })[];
@@ -13,19 +13,8 @@ interface Props {
   selectedMonth: string;
   prefilledTenantId?: string;
   existingPayment?: Payment;
-  existingAdjustment?: TenantBalanceAdjustment | null;
-  adjustments?: TenantBalanceAdjustment[];
-  balances?: Record<string, PaymentBalanceSummary>;
   isOpen?: boolean;
   onClose?: () => void;
-}
-
-interface PaymentBalanceSummary {
-  carriedBalance: number;
-  currentAdjustment: number;
-  currentDue: number;
-  currentPaid: number;
-  endingBalance: number;
 }
 
 // ─── M-Pesa SMS parser ────────────────────────────────────────────────────────
@@ -104,9 +93,6 @@ const EMPTY_FORM = (month: string) => ({
   garbage_paid: '',
   security_paid: '',
   deposit_paid: '',
-  arrears_paid: '',
-  arrears_adjustment_amount: '',
-  arrears_adjustment_notes: '',
   payment_method: 'M-Pesa',
   reference_number: '',
   payment_date: format(new Date(), 'yyyy-MM-dd'),
@@ -120,9 +106,6 @@ export default function RecordPaymentModal({
   selectedMonth,
   prefilledTenantId,
   existingPayment,
-  existingAdjustment,
-  adjustments = [],
-  balances = {},
   isOpen,
   onClose,
 }: Props) {
@@ -146,24 +129,17 @@ export default function RecordPaymentModal({
         tenant_id: existingPayment.tenant_id,
         payment_month: existingPayment.payment_month,
         months_count: 1,
-        rent_paid: String(existingPayment.rent_paid ?? ''),
-        water_paid: String(existingPayment.water_paid ?? ''),
-        garbage_paid: String(existingPayment.garbage_paid ?? ''),
-        security_paid: String(existingPayment.security_paid ?? ''),
-        deposit_paid: String(existingPayment.deposit_paid ?? ''),
-        arrears_paid: String(existingPayment.arrears_paid ?? ''),
-        arrears_adjustment_amount: existingAdjustment
-          ? String(existingAdjustment.amount ?? '')
-          : '',
-        arrears_adjustment_notes: existingAdjustment?.notes ?? '',
+        rent_paid: '',
+        water_paid: '',
+        garbage_paid: '',
+        security_paid: '',
+        deposit_paid: '',
         payment_method: existingPayment.payment_method ?? 'M-Pesa',
-        reference_number: existingPayment.reference_number ?? '',
-        payment_date: existingPayment.payment_date
-          ? format(parseISO(existingPayment.payment_date), 'yyyy-MM-dd')
-          : format(new Date(), 'yyyy-MM-dd'),
-        entry_mode: 'replace_summary',
-        notes: existingPayment.notes ?? '',
-        mpesa_message: existingPayment.mpesa_message ?? '',
+        reference_number: '',
+        payment_date: format(new Date(), 'yyyy-MM-dd'),
+        entry_mode: 'add_transaction',
+        notes: '',
+        mpesa_message: '',
       });
       return;
     }
@@ -178,38 +154,6 @@ export default function RecordPaymentModal({
   const apt = selectedTenant?.apartments as Record<string, number> | null;
   const isEditing = !!existingPayment;
   const monthsCount = isEditing ? 1 : Math.max(1, Math.min(12, Number(form.months_count) || 1));
-  const selectedBalance = form.tenant_id ? balances[form.tenant_id] : undefined;
-  const expectedMonthlyBill = apt
-    ? (apt.rent_amount ?? 0) +
-      (apt.water_bill ?? 0) +
-      (apt.garbage_bill ?? 0) +
-      (apt.security_bill ?? 0)
-    : 0;
-
-  function getArrearsDueFor(tenantId: string, paymentMonth: string) {
-    const balance = balances[tenantId];
-    if (balance) {
-      return Math.max(0, balance.currentDue - expectedMonthlyBill);
-    }
-
-    const adjustment = getAdjustmentFor(tenantId, paymentMonth);
-    return Math.max(0, Number(adjustment?.amount ?? 0));
-  }
-
-  function getAdjustmentFor(tenantId: string, paymentMonth: string) {
-    if (
-      existingAdjustment &&
-      existingAdjustment.tenant_id === tenantId &&
-      existingAdjustment.adjustment_month === paymentMonth
-    ) {
-      return existingAdjustment;
-    }
-
-    return adjustments.find(
-      (adjustment) =>
-        adjustment.tenant_id === tenantId && adjustment.adjustment_month === paymentMonth,
-    ) ?? null;
-  }
 
   // Generate the list of months this payment will cover
   const coveredMonths = Array.from({ length: monthsCount }, (_, i) => {
@@ -218,35 +162,9 @@ export default function RecordPaymentModal({
     return { value: format(d, 'yyyy-MM-dd'), label: format(d, 'MMMM yyyy') };
   });
 
-  useEffect(() => {
-    if (!open || !form.tenant_id || !form.payment_month) return;
-
-    const adjustment = getAdjustmentFor(form.tenant_id, form.payment_month);
-    const arrearsDue = getArrearsDueFor(form.tenant_id, form.payment_month);
-    setForm((current) => ({
-      ...current,
-      arrears_paid: isEditing
-        ? current.arrears_paid
-        : arrearsDue > 0
-          ? String(arrearsDue)
-          : '',
-      arrears_adjustment_amount: adjustment ? String(adjustment.amount ?? '') : '',
-      arrears_adjustment_notes: adjustment?.notes ?? '',
-    }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, form.tenant_id, form.payment_month, existingAdjustment?.id, adjustments]);
-
   function prefillFromTenant(tenantId: string) {
     const tenant = tenants.find((t) => t.id === tenantId);
     const a = tenant?.apartments as Record<string, number> | null;
-    const adjustment = getAdjustmentFor(tenantId, selectedMonth);
-    const apartmentBill = a
-      ? (a.rent_amount ?? 0) + (a.water_bill ?? 0) + (a.garbage_bill ?? 0) + (a.security_bill ?? 0)
-      : 0;
-    const balance = balances[tenantId];
-    const arrearsDue = balance
-      ? Math.max(0, balance.currentDue - apartmentBill)
-      : Math.max(0, Number(adjustment?.amount ?? 0));
     if (a) {
       setForm((f) => ({
         ...f,
@@ -256,19 +174,9 @@ export default function RecordPaymentModal({
         water_paid: String(a.water_bill ?? ''),
         garbage_paid: String(a.garbage_bill ?? ''),
         security_paid: String(a.security_bill ?? ''),
-        arrears_paid: arrearsDue ? String(arrearsDue) : '',
-        arrears_adjustment_amount: adjustment ? String(adjustment.amount ?? '') : '',
-        arrears_adjustment_notes: adjustment?.notes ?? '',
       }));
     } else {
-      setForm((f) => ({
-        ...f,
-        tenant_id: tenantId,
-        payment_month: selectedMonth,
-        arrears_paid: arrearsDue ? String(arrearsDue) : '',
-        arrears_adjustment_amount: adjustment ? String(adjustment.amount ?? '') : '',
-        arrears_adjustment_notes: adjustment?.notes ?? '',
-      }));
+      setForm((f) => ({ ...f, tenant_id: tenantId, payment_month: selectedMonth }));
     }
   }
 
@@ -281,6 +189,27 @@ export default function RecordPaymentModal({
       return;
     }
     setForm((f) => ({ ...f, [name]: value }));
+  }
+
+  function handleEntryModeChange(value: string) {
+    if (!existingPayment) return;
+
+    setForm((f) => ({
+      ...f,
+      entry_mode: value,
+      rent_paid: value === 'replace_summary' ? String(existingPayment.rent_paid ?? '') : '',
+      water_paid: value === 'replace_summary' ? String(existingPayment.water_paid ?? '') : '',
+      garbage_paid: value === 'replace_summary' ? String(existingPayment.garbage_paid ?? '') : '',
+      security_paid: value === 'replace_summary' ? String(existingPayment.security_paid ?? '') : '',
+      deposit_paid: value === 'replace_summary' ? String(existingPayment.deposit_paid ?? '') : '',
+      reference_number: value === 'replace_summary' ? existingPayment.reference_number ?? '' : '',
+      payment_date:
+        value === 'replace_summary' && existingPayment.payment_date
+          ? format(parseISO(existingPayment.payment_date), 'yyyy-MM-dd')
+          : format(new Date(), 'yyyy-MM-dd'),
+      notes: value === 'replace_summary' ? existingPayment.notes ?? '' : '',
+      mpesa_message: value === 'replace_summary' ? existingPayment.mpesa_message ?? '' : '',
+    }));
   }
 
   function handlePasteSMS() {
@@ -347,19 +276,13 @@ export default function RecordPaymentModal({
       water_paid: parseFloat(form.water_paid) || 0,
       garbage_paid: parseFloat(form.garbage_paid) || 0,
       security_paid: parseFloat(form.security_paid) || 0,
-      arrears_paid: parseFloat(form.arrears_paid) || 0,
       payment_method: form.payment_method,
       reference_number: form.reference_number || null,
       payment_date: form.payment_date || new Date().toISOString(),
-      entry_mode: 'replace_summary',
+      entry_mode: isEditing ? form.entry_mode : 'replace_summary',
       notes: form.notes || null,
       mpesa_message: form.mpesa_message || null,
     };
-    const matchingAdjustment = getAdjustmentFor(form.tenant_id, form.payment_month);
-    const shouldSaveArrearsAdjustment =
-      form.arrears_adjustment_amount.trim() !== '' ||
-      form.arrears_adjustment_notes.trim() !== '' ||
-      !!matchingAdjustment;
 
     // Submit one record per month; deposit only goes on the first month
     for (let i = 0; i < monthsCount; i++) {
@@ -370,15 +293,7 @@ export default function RecordPaymentModal({
           ...basePayload,
           payment_month: coveredMonths[i]!.value,
           deposit_paid: i === 0 ? (parseFloat(form.deposit_paid) || 0) : 0,
-          ...(i === 0 && shouldSaveArrearsAdjustment
-            ? {
-                arrears_adjustment_amount:
-                  parseFloat(form.arrears_adjustment_amount) || 0,
-                arrears_adjustment_notes:
-                  form.arrears_adjustment_notes.trim() || null,
-              }
-            : {}),
-          send_sms: !isEditing,
+          send_sms: !isEditing || form.entry_mode === 'add_transaction',
         }),
       });
       const data = await res.json();
@@ -407,8 +322,7 @@ export default function RecordPaymentModal({
     (parseFloat(form.rent_paid) || 0) +
     (parseFloat(form.water_paid) || 0) +
     (parseFloat(form.garbage_paid) || 0) +
-    (parseFloat(form.security_paid) || 0) +
-    (parseFloat(form.arrears_paid) || 0);
+    (parseFloat(form.security_paid) || 0);
 
   const grandTotal = perMonthTotal * monthsCount + (parseFloat(form.deposit_paid) || 0);
 
@@ -469,6 +383,32 @@ export default function RecordPaymentModal({
                     ))}
                   </select>
                 </div>
+
+                {isEditing && (
+                  <div
+                    className="p-3 rounded-xl space-y-3"
+                    style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)' }}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <span style={{ color: 'var(--color-text-muted)' }}>Current monthly total</span>
+                      <span className="font-semibold" style={{ color: 'var(--color-brand-light)' }}>
+                        {formatCurrency(existingPayment.total_paid)}
+                      </span>
+                    </div>
+                    <div>
+                      <label className="label">Update Type</label>
+                      <select
+                        className="input"
+                        name="entry_mode"
+                        value={form.entry_mode}
+                        onChange={(e) => handleEntryModeChange(e.target.value)}
+                      >
+                        <option value="add_transaction">Add another transaction</option>
+                        <option value="replace_summary">Correct monthly totals</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
 
                 {/* Payment date — prominent, near top */}
                 <div
@@ -564,36 +504,6 @@ export default function RecordPaymentModal({
                   </div>
                 )}
 
-                {selectedBalance && (
-                  <div
-                    className="text-xs px-3 py-2.5 rounded-lg space-y-1"
-                    style={{
-                      background: 'rgba(245,158,11,0.08)',
-                      border: '1px solid rgba(245,158,11,0.25)',
-                      color: 'var(--color-text-muted)',
-                    }}
-                  >
-                    <div className="flex justify-between gap-3">
-                      <span>Balance to be paid</span>
-                      <strong style={{ color: selectedBalance.currentDue > 0 ? '#b91c1c' : '#15803d' }}>
-                        {selectedBalance.currentDue > 0
-                          ? formatCurrency(selectedBalance.currentDue)
-                          : `Credit ${formatCurrency(Math.abs(selectedBalance.currentDue))}`}
-                      </strong>
-                    </div>
-                    {selectedBalance.carriedBalance !== 0 && (
-                      <div className="flex justify-between gap-3">
-                        <span>Carried balance</span>
-                        <span>
-                          {selectedBalance.carriedBalance > 0
-                            ? formatCurrency(selectedBalance.carriedBalance)
-                            : `Credit ${formatCurrency(Math.abs(selectedBalance.carriedBalance))}`}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                )}
-
                 {/* M-Pesa SMS auto-fill */}
                 <div
                   className="rounded-xl overflow-hidden"
@@ -643,7 +553,9 @@ export default function RecordPaymentModal({
 
                 {/* Amounts — per month */}
                 <p className="text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>
-                  Monthly amounts (per month):
+                  {isEditing && form.entry_mode === 'add_transaction'
+                    ? 'This transaction amount:'
+                    : 'Monthly amounts (per month):'}
                 </p>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -666,11 +578,6 @@ export default function RecordPaymentModal({
                     <input className="input" name="security_paid" type="number" min="0"
                       value={form.security_paid} onChange={handleChange} placeholder="0" />
                   </div>
-                  <div>
-                    <label className="label">Arrears Paid (KES)</label>
-                    <input className="input" name="arrears_paid" type="number" min="0"
-                      value={form.arrears_paid} onChange={handleChange} placeholder="0" />
-                  </div>
                 </div>
 
                 {/* Deposit — one-time, separate line */}
@@ -688,40 +595,6 @@ export default function RecordPaymentModal({
                     onChange={handleChange}
                     placeholder="0 — leave blank if no deposit this payment"
                   />
-                </div>
-
-                {/* Carry-forward arrears */}
-                <div
-                  className="p-3 rounded-xl space-y-3"
-                  style={{
-                    background: 'rgba(245,158,11,0.07)',
-                    border: '1px solid rgba(245,158,11,0.25)',
-                  }}
-                >
-                  <div>
-                    <label className="label">Carry-forward arrears / credit (KES)</label>
-                    <input
-                      className="input mt-1"
-                      name="arrears_adjustment_amount"
-                      type="number"
-                      value={form.arrears_adjustment_amount}
-                      onChange={handleChange}
-                      placeholder="0"
-                    />
-                    <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
-                      Use a positive amount for arrears, or a negative amount for credit.
-                    </p>
-                  </div>
-                  <div>
-                    <label className="label">Arrears notes</label>
-                    <input
-                      className="input"
-                      name="arrears_adjustment_notes"
-                      value={form.arrears_adjustment_notes}
-                      onChange={handleChange}
-                      placeholder="e.g. Opening balance"
-                    />
-                  </div>
                 </div>
 
                 {/* Grand total */}
