@@ -99,8 +99,6 @@ const EMPTY_FORM = (month: string) => ({
   reference_number: '',
   payment_date: format(new Date(), 'yyyy-MM-dd'),
   entry_mode: 'replace_summary',
-  arrears_adjustment_amount: '',
-  arrears_adjustment_notes: '',
   notes: '',
   mpesa_message: '',
 });
@@ -110,8 +108,6 @@ export default function RecordPaymentModal({
   selectedMonth,
   prefilledTenantId,
   existingPayment,
-  existingAdjustment,
-  adjustments = [],
   isOpen,
   onClose,
 }: Props) {
@@ -131,8 +127,6 @@ export default function RecordPaymentModal({
 
   useEffect(() => {
     if (controlled && isOpen && existingPayment) {
-      const adjustment =
-        existingAdjustment ?? adjustments.find((a) => a.tenant_id === existingPayment.tenant_id);
       setForm({
         tenant_id: existingPayment.tenant_id,
         payment_month: existingPayment.payment_month,
@@ -146,8 +140,6 @@ export default function RecordPaymentModal({
         reference_number: '',
         payment_date: format(new Date(), 'yyyy-MM-dd'),
         entry_mode: 'add_transaction',
-        arrears_adjustment_amount: adjustment ? String(adjustment.amount ?? '') : '',
-        arrears_adjustment_notes: adjustment?.notes ?? '',
         notes: '',
         mpesa_message: '',
       });
@@ -158,14 +150,12 @@ export default function RecordPaymentModal({
       prefillFromTenant(prefilledTenantId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, prefilledTenantId, existingPayment?.id, existingAdjustment?.id, adjustments]);
+  }, [isOpen, prefilledTenantId, existingPayment?.id]);
 
   const selectedTenant = tenants.find((t) => t.id === form.tenant_id);
   const apt = selectedTenant?.apartments as Record<string, number> | null;
   const isEditing = !!existingPayment;
   const monthsCount = isEditing ? 1 : Math.max(1, Math.min(12, Number(form.months_count) || 1));
-  const selectedAdjustment =
-    existingAdjustment ?? adjustments.find((a) => a.tenant_id === form.tenant_id) ?? null;
 
   // Generate the list of months this payment will cover
   const coveredMonths = Array.from({ length: monthsCount }, (_, i) => {
@@ -177,7 +167,6 @@ export default function RecordPaymentModal({
   function prefillFromTenant(tenantId: string) {
     const tenant = tenants.find((t) => t.id === tenantId);
     const a = tenant?.apartments as Record<string, number> | null;
-    const adjustment = adjustments.find((item) => item.tenant_id === tenantId);
     if (a) {
       setForm((f) => ({
         ...f,
@@ -187,16 +176,12 @@ export default function RecordPaymentModal({
         water_paid: String(a.water_bill ?? ''),
         garbage_paid: String(a.garbage_bill ?? ''),
         security_paid: String(a.security_bill ?? ''),
-        arrears_adjustment_amount: adjustment ? String(adjustment.amount ?? '') : '',
-        arrears_adjustment_notes: adjustment?.notes ?? '',
       }));
     } else {
       setForm((f) => ({
         ...f,
         tenant_id: tenantId,
         payment_month: selectedMonth,
-        arrears_adjustment_amount: adjustment ? String(adjustment.amount ?? '') : '',
-        arrears_adjustment_notes: adjustment?.notes ?? '',
       }));
     }
   }
@@ -314,12 +299,6 @@ export default function RecordPaymentModal({
           ...basePayload,
           payment_month: coveredMonths[i]!.value,
           deposit_paid: i === 0 ? (parseFloat(form.deposit_paid) || 0) : 0,
-          ...(i === 0
-            ? {
-                arrears_adjustment_amount: parseFloat(form.arrears_adjustment_amount) || 0,
-                arrears_adjustment_notes: form.arrears_adjustment_notes || null,
-              }
-            : {}),
           send_sms: !isEditing || form.entry_mode === 'add_transaction',
         }),
       });
@@ -605,39 +584,6 @@ export default function RecordPaymentModal({
                     <input className="input" name="security_paid" type="number" min="0"
                       value={form.security_paid} onChange={handleChange} placeholder="0" />
                   </div>
-                </div>
-
-                {/* Manual arrears adjustment */}
-                <div
-                  className="p-3 rounded-xl space-y-3"
-                  style={{ background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.25)' }}
-                >
-                  <div>
-                    <label className="label">Carry-forward arrears adjustment (KES)</label>
-                    <input
-                      className="input mt-1"
-                      name="arrears_adjustment_amount"
-                      type="number"
-                      value={form.arrears_adjustment_amount}
-                      onChange={handleChange}
-                      placeholder="0 — positive adds arrears, negative adds credit"
-                    />
-                  </div>
-                  <div>
-                    <label className="label">Arrears adjustment notes</label>
-                    <input
-                      className="input"
-                      name="arrears_adjustment_notes"
-                      value={form.arrears_adjustment_notes}
-                      onChange={handleChange}
-                      placeholder="e.g. Opening arrears before system records"
-                    />
-                  </div>
-                  {selectedAdjustment && (
-                    <p className="text-xs" style={{ color: '#b45309' }}>
-                      Existing adjustment for this month: {formatCurrency(selectedAdjustment.amount)}
-                    </p>
-                  )}
                 </div>
 
                 {/* Deposit — one-time, separate line */}
