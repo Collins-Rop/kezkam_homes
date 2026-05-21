@@ -1,7 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useMemo } from 'react';
 import {
   CheckCircle,
   XCircle,
@@ -11,7 +10,6 @@ import {
   CreditCard,
   Building2,
   Pencil,
-  Save,
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import RecordPaymentModal from './RecordPaymentModal';
@@ -83,143 +81,17 @@ export default function PaymentTrackerTable({
   balances,
   adjustments,
 }: Props) {
-  const router = useRouter();
   const [search, setSearch] = useState('');
   const [collapsedBuildings, setCollapsedBuildings] = useState<Set<string>>(new Set());
   const [collapsedPaidSections, setCollapsedPaidSections] = useState<Set<string>>(new Set());
   const [collapsedPartialSections, setCollapsedPartialSections] = useState<Set<string>>(new Set());
   const [recordingFor, setRecordingFor] = useState<string | null>(null);
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
-  const [adjustmentDrafts, setAdjustmentDrafts] = useState<Record<string, { amount: string; notes: string }>>({});
-  const [savingAdjustmentFor, setSavingAdjustmentFor] = useState<string | null>(null);
-  const [adjustmentErrors, setAdjustmentErrors] = useState<Record<string, string>>({});
 
   const paymentMap = useMemo(
     () => new Map(payments.map((p) => [p.tenant_id, p])),
     [payments],
   );
-  const adjustmentMap = useMemo(
-    () => new Map(adjustments.map((a) => [a.tenant_id, a])),
-    [adjustments],
-  );
-
-  useEffect(() => {
-    setAdjustmentDrafts((prev) => {
-      const next = { ...prev };
-      for (const adjustment of adjustments) {
-        if (!next[adjustment.tenant_id]) {
-          next[adjustment.tenant_id] = {
-            amount: String(adjustment.amount ?? ''),
-            notes: adjustment.notes ?? '',
-          };
-        }
-      }
-      return next;
-    });
-  }, [adjustments]);
-
-  function getAdjustmentDraft(tenantId: string) {
-    const adjustment = adjustmentMap.get(tenantId);
-    return adjustmentDrafts[tenantId] ?? {
-      amount: adjustment ? String(adjustment.amount ?? '') : '',
-      notes: adjustment?.notes ?? '',
-    };
-  }
-
-  function updateAdjustmentDraft(tenantId: string, field: 'amount' | 'notes', value: string) {
-    setAdjustmentDrafts((prev) => ({
-      ...prev,
-      [tenantId]: {
-        ...getAdjustmentDraft(tenantId),
-        [field]: value,
-      },
-    }));
-    setAdjustmentErrors((prev) => {
-      const next = { ...prev };
-      delete next[tenantId];
-      return next;
-    });
-  }
-
-  function adjustmentChanged(tenantId: string) {
-    const draft = getAdjustmentDraft(tenantId);
-    const adjustment = adjustmentMap.get(tenantId);
-    const currentAmount = adjustment ? String(adjustment.amount ?? '') : '';
-    const currentNotes = adjustment?.notes ?? '';
-    return draft.amount !== currentAmount || draft.notes !== currentNotes;
-  }
-
-  async function saveAdjustment(tenant: TenantWithApt): Promise<boolean> {
-    if (!tenant.apartment_id) return true;
-
-    const draft = getAdjustmentDraft(tenant.id);
-    const parsedAmount = parseFloat(draft.amount);
-    const amount = Number.isFinite(parsedAmount) ? parsedAmount : 0;
-
-    setSavingAdjustmentFor(tenant.id);
-    setAdjustmentErrors((prev) => {
-      const next = { ...prev };
-      delete next[tenant.id];
-      return next;
-    });
-
-    try {
-      const res = await fetch('/api/tenant-balance-adjustments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tenant_id: tenant.id,
-          apartment_id: tenant.apartment_id,
-          adjustment_month: selectedMonth,
-          amount,
-          notes: draft.notes.trim() || null,
-        }),
-      });
-      const data = await res.json();
-
-      if (!res.ok) {
-        setAdjustmentErrors((prev) => ({
-          ...prev,
-          [tenant.id]: data.error ?? 'Could not save carry-forward arrears.',
-        }));
-        return false;
-      }
-    } catch (err) {
-      setAdjustmentErrors((prev) => ({
-        ...prev,
-        [tenant.id]:
-          err instanceof Error ? err.message : 'Could not save carry-forward arrears.',
-      }));
-      return false;
-    } finally {
-      setSavingAdjustmentFor(null);
-    }
-
-    setAdjustmentDrafts((prev) => ({
-      ...prev,
-      [tenant.id]: {
-        amount: String(amount),
-        notes: draft.notes.trim(),
-      },
-    }));
-    router.refresh();
-    return true;
-  }
-
-  async function saveAdjustmentIfChanged(tenant: TenantWithApt): Promise<boolean> {
-    if (!adjustmentChanged(tenant.id)) return true;
-    return saveAdjustment(tenant);
-  }
-
-  async function proceedToRecord(tenant: TenantWithApt) {
-    const saved = await saveAdjustmentIfChanged(tenant);
-    if (saved) setRecordingFor(tenant.id);
-  }
-
-  async function proceedToEdit(tenant: TenantWithApt, payment: Payment) {
-    const saved = await saveAdjustmentIfChanged(tenant);
-    if (saved) setEditingPayment(payment);
-  }
 
   // Build building → apartment → tenant groups
   const buildingGroups = useMemo((): BuildingGroup[] => {
@@ -531,14 +403,8 @@ export default function PaymentTrackerTable({
                               tenants={aptTenants}
                               paymentMap={paymentMap}
                               balances={balances}
-                              getAdjustmentDraft={getAdjustmentDraft}
-                              onAdjustmentChange={updateAdjustmentDraft}
-                              onSaveAdjustment={saveAdjustment}
-                              savingAdjustmentFor={savingAdjustmentFor}
-                              adjustmentErrors={adjustmentErrors}
-                              adjustmentChanged={adjustmentChanged}
-                              onRecord={proceedToRecord}
-                              onEdit={proceedToEdit}
+                              onRecord={(id) => setRecordingFor(id)}
+                              onEdit={(payment) => setEditingPayment(payment)}
                               showSearch={!!search.trim()}
                             />
                           ))}
@@ -581,14 +447,8 @@ export default function PaymentTrackerTable({
                               tenants={aptTenants}
                               paymentMap={paymentMap}
                               balances={balances}
-                              getAdjustmentDraft={getAdjustmentDraft}
-                              onAdjustmentChange={updateAdjustmentDraft}
-                              onSaveAdjustment={saveAdjustment}
-                              savingAdjustmentFor={savingAdjustmentFor}
-                              adjustmentErrors={adjustmentErrors}
-                              adjustmentChanged={adjustmentChanged}
-                              onRecord={proceedToRecord}
-                              onEdit={proceedToEdit}
+                              onRecord={(id) => setRecordingFor(id)}
+                              onEdit={(payment) => setEditingPayment(payment)}
                               showSearch={!!search.trim()}
                             />
                           ))}
@@ -624,14 +484,8 @@ export default function PaymentTrackerTable({
                             tenants={aptTenants}
                             paymentMap={paymentMap}
                             balances={balances}
-                            getAdjustmentDraft={getAdjustmentDraft}
-                            onAdjustmentChange={updateAdjustmentDraft}
-                            onSaveAdjustment={saveAdjustment}
-                            savingAdjustmentFor={savingAdjustmentFor}
-                            adjustmentErrors={adjustmentErrors}
-                            adjustmentChanged={adjustmentChanged}
-                            onRecord={proceedToRecord}
-                            onEdit={proceedToEdit}
+                            onRecord={(id) => setRecordingFor(id)}
+                            onEdit={(payment) => setEditingPayment(payment)}
                             showSearch={!!search.trim()}
                           />
                         ))}
@@ -716,12 +570,6 @@ function AptBlock({
   tenants,
   paymentMap,
   balances,
-  getAdjustmentDraft,
-  onAdjustmentChange,
-  onSaveAdjustment,
-  savingAdjustmentFor,
-  adjustmentErrors,
-  adjustmentChanged,
   onRecord,
   onEdit,
   showSearch,
@@ -730,14 +578,8 @@ function AptBlock({
   tenants: TenantWithApt[];
   paymentMap: Map<string, Payment>;
   balances: Record<string, TenantBalance>;
-  getAdjustmentDraft: (tenantId: string) => { amount: string; notes: string };
-  onAdjustmentChange: (tenantId: string, field: 'amount' | 'notes', value: string) => void;
-  onSaveAdjustment: (tenant: TenantWithApt) => Promise<boolean>;
-  savingAdjustmentFor: string | null;
-  adjustmentErrors: Record<string, string>;
-  adjustmentChanged: (tenantId: string) => boolean;
-  onRecord: (tenant: TenantWithApt) => void;
-  onEdit: (tenant: TenantWithApt, payment: Payment) => void;
+  onRecord: (id: string) => void;
+  onEdit: (payment: Payment) => void;
   showSearch: boolean;
 }) {
   const [open, setOpen] = useState(showSearch);
@@ -808,9 +650,6 @@ function AptBlock({
               : isPartial
               ? 'rgba(245,158,11,0.05)'
               : 'rgba(220,38,38,0.02)';
-            const adjustmentDraft = getAdjustmentDraft(tenant.id);
-            const isSavingAdjustment = savingAdjustmentFor === tenant.id;
-            const hasAdjustmentChange = adjustmentChanged(tenant.id);
 
             return (
               <div
@@ -891,48 +730,6 @@ function AptBlock({
                     </>
                   )}
                 </div>
-                <div className="w-full grid gap-2 sm:grid-cols-[minmax(130px,0.8fr)_minmax(180px,1fr)_auto] sm:items-end sm:pl-6">
-                  <div>
-                    <label className="label">Carry-forward arrears</label>
-                    <input
-                      className="input !py-1.5 !text-xs"
-                      type="number"
-                      value={adjustmentDraft.amount}
-                      onChange={(e) => onAdjustmentChange(tenant.id, 'amount', e.target.value)}
-                      placeholder="0"
-                    />
-                  </div>
-                  <div>
-                    <label className="label">Arrears notes</label>
-                    <input
-                      className="input !py-1.5 !text-xs"
-                      value={adjustmentDraft.notes}
-                      onChange={(e) => onAdjustmentChange(tenant.id, 'notes', e.target.value)}
-                      placeholder="Opening arrears, water balance, or correction"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => onSaveAdjustment(tenant)}
-                    disabled={isSavingAdjustment || !hasAdjustmentChange}
-                    className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium disabled:opacity-50"
-                    style={{
-                      background: hasAdjustmentChange ? 'rgba(245,158,11,0.12)' : 'var(--color-surface-2)',
-                      color: hasAdjustmentChange ? '#b45309' : 'var(--color-text-subtle)',
-                      border: hasAdjustmentChange
-                        ? '1px solid rgba(245,158,11,0.25)'
-                        : '1px solid var(--color-border)',
-                    }}
-                  >
-                    <Save size={12} />
-                    {isSavingAdjustment ? 'Saving…' : 'Save'}
-                  </button>
-                  {adjustmentErrors[tenant.id] && (
-                    <p className="text-xs sm:col-span-3" style={{ color: '#b91c1c' }}>
-                      {adjustmentErrors[tenant.id]}
-                    </p>
-                  )}
-                </div>
                 {payment ? (
                   <div className="flex flex-shrink-0 items-center gap-2">
                     {isPartial && (
@@ -949,7 +746,7 @@ function AptBlock({
                     )}
                     <button
                       type="button"
-                      onClick={() => onEdit(tenant, payment)}
+                      onClick={() => onEdit(payment)}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
                       style={{
                         background: isPartial ? 'rgba(245,158,11,0.12)' : 'rgba(22,163,74,0.1)',
@@ -971,7 +768,7 @@ function AptBlock({
                 ) : (
                   <button
                     type="button"
-                    onClick={() => onRecord(tenant)}
+                    onClick={() => onRecord(tenant.id)}
                     className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
                     style={{ background: 'var(--color-brand)', color: '#fff' }}
                   >

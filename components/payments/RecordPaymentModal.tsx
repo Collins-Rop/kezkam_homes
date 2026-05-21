@@ -131,17 +131,19 @@ export default function RecordPaymentModal({
         tenant_id: existingPayment.tenant_id,
         payment_month: existingPayment.payment_month,
         months_count: 1,
-        rent_paid: '',
-        water_paid: '',
-        garbage_paid: '',
-        security_paid: '',
-        deposit_paid: '',
+        rent_paid: String(existingPayment.rent_paid ?? ''),
+        water_paid: String(existingPayment.water_paid ?? ''),
+        garbage_paid: String(existingPayment.garbage_paid ?? ''),
+        security_paid: String(existingPayment.security_paid ?? ''),
+        deposit_paid: String(existingPayment.deposit_paid ?? ''),
         payment_method: existingPayment.payment_method ?? 'M-Pesa',
-        reference_number: '',
-        payment_date: format(new Date(), 'yyyy-MM-dd'),
-        entry_mode: 'add_transaction',
-        notes: '',
-        mpesa_message: '',
+        reference_number: existingPayment.reference_number ?? '',
+        payment_date: existingPayment.payment_date
+          ? format(parseISO(existingPayment.payment_date), 'yyyy-MM-dd')
+          : format(new Date(), 'yyyy-MM-dd'),
+        entry_mode: 'replace_summary',
+        notes: existingPayment.notes ?? '',
+        mpesa_message: existingPayment.mpesa_message ?? '',
       });
       return;
     }
@@ -195,27 +197,6 @@ export default function RecordPaymentModal({
       return;
     }
     setForm((f) => ({ ...f, [name]: value }));
-  }
-
-  function handleEntryModeChange(value: string) {
-    if (!existingPayment) return;
-
-    setForm((f) => ({
-      ...f,
-      entry_mode: value,
-      rent_paid: value === 'replace_summary' ? String(existingPayment.rent_paid ?? '') : '',
-      water_paid: value === 'replace_summary' ? String(existingPayment.water_paid ?? '') : '',
-      garbage_paid: value === 'replace_summary' ? String(existingPayment.garbage_paid ?? '') : '',
-      security_paid: value === 'replace_summary' ? String(existingPayment.security_paid ?? '') : '',
-      deposit_paid: value === 'replace_summary' ? String(existingPayment.deposit_paid ?? '') : '',
-      reference_number: value === 'replace_summary' ? existingPayment.reference_number ?? '' : '',
-      payment_date:
-        value === 'replace_summary' && existingPayment.payment_date
-          ? format(parseISO(existingPayment.payment_date), 'yyyy-MM-dd')
-          : format(new Date(), 'yyyy-MM-dd'),
-      notes: value === 'replace_summary' ? existingPayment.notes ?? '' : '',
-      mpesa_message: value === 'replace_summary' ? existingPayment.mpesa_message ?? '' : '',
-    }));
   }
 
   function handlePasteSMS() {
@@ -285,7 +266,7 @@ export default function RecordPaymentModal({
       payment_method: form.payment_method,
       reference_number: form.reference_number || null,
       payment_date: form.payment_date || new Date().toISOString(),
-      entry_mode: isEditing ? form.entry_mode : 'replace_summary',
+      entry_mode: 'replace_summary',
       notes: form.notes || null,
       mpesa_message: form.mpesa_message || null,
     };
@@ -299,7 +280,7 @@ export default function RecordPaymentModal({
           ...basePayload,
           payment_month: coveredMonths[i]!.value,
           deposit_paid: i === 0 ? (parseFloat(form.deposit_paid) || 0) : 0,
-          send_sms: !isEditing || form.entry_mode === 'add_transaction',
+          send_sms: !isEditing,
         }),
       });
       const data = await res.json();
@@ -389,32 +370,6 @@ export default function RecordPaymentModal({
                     ))}
                   </select>
                 </div>
-
-                {isEditing && (
-                  <div
-                    className="p-3 rounded-xl space-y-3"
-                    style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)' }}
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                      <span style={{ color: 'var(--color-text-muted)' }}>Current monthly total</span>
-                      <span className="font-semibold" style={{ color: 'var(--color-brand-light)' }}>
-                        {formatCurrency(existingPayment.total_paid)}
-                      </span>
-                    </div>
-                    <div>
-                      <label className="label">Update Type</label>
-                      <select
-                        className="input"
-                        name="entry_mode"
-                        value={form.entry_mode}
-                        onChange={(e) => handleEntryModeChange(e.target.value)}
-                      >
-                        <option value="add_transaction">Add another transaction</option>
-                        <option value="replace_summary">Correct monthly totals</option>
-                      </select>
-                    </div>
-                  </div>
-                )}
 
                 {/* Payment date — prominent, near top */}
                 <div
@@ -559,9 +514,7 @@ export default function RecordPaymentModal({
 
                 {/* Amounts — per month */}
                 <p className="text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>
-                  {isEditing && form.entry_mode === 'add_transaction'
-                    ? 'This transaction amount:'
-                    : 'Monthly amounts (per month):'}
+                  Monthly amounts (per month):
                 </p>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
